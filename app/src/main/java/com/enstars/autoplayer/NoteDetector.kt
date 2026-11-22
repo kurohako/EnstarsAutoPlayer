@@ -20,9 +20,9 @@ class NoteDetector(private val config: GameConfig) {
     fun detect(bitmap: Bitmap, capturedAtMs: Long = SystemClock.uptimeMillis()): List<Hit> {
         val width = bitmap.width
         val height = bitmap.height
-        val judgeY = config.hitY * height
-        val result = mutableListOf<Hit>()
+                val result = mutableListOf<Hit>()
         config.laneXs.forEachIndexed { lane, normalizedX ->
+            val judgeY = config.laneYs[lane] * height
             val x = (normalizedX * width).toInt().coerceIn(0, width - 1)
             val radius = (width * .012f).toInt().coerceAtLeast(2)
             val startY = (judgeY - height * .28f).toInt().coerceAtLeast(0)
