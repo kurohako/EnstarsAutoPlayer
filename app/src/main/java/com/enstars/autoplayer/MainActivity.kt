@@ -45,7 +45,12 @@ class MainActivity:Activity(){
    if(service==null)Toast.makeText(this,"Enable accessibility service first",Toast.LENGTH_LONG).show()
    else{service.start();Toast.makeText(this,"Started",Toast.LENGTH_SHORT).show()}
   }
-  button("Recalibrate 9 points"){\n   val service=AutoPlayService.instance\n   if(service==null)Toast.makeText(this,"Enable accessibility service first",Toast.LENGTH_LONG).show()\n   else{service.restartCalibration();Toast.makeText(this,"Waiting for 9 judgment points",Toast.LENGTH_SHORT).show()}\n  }\n  button("View last calibration"){
+  button("Recalibrate 9 points"){
+   val service=AutoPlayService.instance
+   if(service==null)Toast.makeText(this,"Enable accessibility service first",Toast.LENGTH_LONG).show()
+   else{service.restartCalibration();Toast.makeText(this,"Waiting for 9 judgment points",Toast.LENGTH_SHORT).show()}
+  }
+  button("View last calibration"){
    val p=getSharedPreferences("calibration",MODE_PRIVATE)
    val saved=p.getLong("saved_at",0L)
    if(saved==0L){
@@ -53,12 +58,18 @@ class MainActivity:Activity(){
    }else{
     val coords=p.getString("points","")!!.split(";").mapIndexed{index,point->
      "P${index+1}: ${point}"
-    }.joinToString("\\n")
-    val message="Lock time: ${p.getLong("lock_ms",-1L)} ms\\n"+
-     "Start to lock: ${p.getLong("request_to_lock_ms",-1L)} ms\\n"+
-     "Frame stability: ${p.getFloat("stability_px",-1f)} px\\n"+
-     "Capture: ${p.getInt("width",0)} x ${p.getInt("height",0)}\\n"+
-     "Saved: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved))}\\n"+
+    }.joinToString("\
+")
+    val message="Lock time: ${p.getLong("lock_ms",-1L)} ms\
+"+
+     "Start to lock: ${p.getLong("request_to_lock_ms",-1L)} ms\
+"+
+     "Frame stability: ${p.getFloat("stability_px",-1f)} px\
+"+
+     "Capture: ${p.getInt("width",0)} x ${p.getInt("height",0)}\
+"+
+     "Saved: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved))}\
+"+
      coords
     android.app.AlertDialog.Builder(this).setTitle("Last locked 9 points")
      .setMessage(message).setPositiveButton("OK",null).show()
