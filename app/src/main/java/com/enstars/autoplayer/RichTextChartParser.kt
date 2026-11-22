@@ -26,7 +26,8 @@ object RichTextChartParser {
    val (sec,b,bt,directBeat,numer,denom,dec)=m.destructured
    if(sec.isNotBlank()){secNo=sec.toInt();bar=0;beat=0;fraction=0.0}
    if(b.isNotBlank()){bar=b.toInt();beat=0;fraction=0.0}
-   if(bt.isNotBlank()){beat=bt.toInt();fraction=0.0}\n   if(directBeat.isNotBlank()){beat=directBeat.toInt();fraction=0.0}
+   if(bt.isNotBlank()){beat=bt.toInt();fraction=0.0}
+   if(directBeat.isNotBlank()){beat=directBeat.toInt();fraction=0.0}
    if(numer.isNotBlank()){
     val den=denom.toDoubleOrNull()?:return null
     if(den==0.0)return null
