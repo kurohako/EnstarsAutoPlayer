@@ -84,6 +84,7 @@ class MainActivity:Activity(){
   label("1. Open the game Live screen. Return here and choose Edit 9 points. Drag each yellow crosshair to its judgment circle. Tap SAVE in the upper right.")
   button("Open Accessibility Settings"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
   button("Show saved 9 points"){service()?.start()}
+  button("SHOW FLOATING START / STOP"){service()?.showFloatingControls()}
   button("Edit 9 points (drag on game)"){
    service()?.editPoints()
    Toast.makeText(this,"Switch to game, drag 9 targets, tap SAVE at top right",Toast.LENGTH_LONG).show()
