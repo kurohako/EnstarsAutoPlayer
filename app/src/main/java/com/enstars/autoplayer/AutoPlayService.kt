@@ -21,7 +21,8 @@ class AutoPlayService:AccessibilityService(){
  private var generation=0
  private var config=GameConfig()
  private var detector=NoteDetector(config)
- private val scheduled=mutableListOf<Runnable>()
+ private var dispatched=0
+ private var detected=0
  override fun onServiceConnected(){super.onServiceConnected();instance=this;overlay=DebugOverlay(this)}
  override fun onAccessibilityEvent(event:AccessibilityEvent?)=Unit
  override fun onInterrupt(){stop()}
@@ -42,7 +43,8 @@ class AutoPlayService:AccessibilityService(){
   if(!::overlay.isInitialized)return
   start()
   playing=true
-  overlay.updateStatus("TAP ONLY - EXPERIMENTAL")
+  dispatched=0;detected=0
+  overlay.updateStatus("AUTO TAP - EXPERIMENTAL")
   handler.post(::capture)
  }
  private fun stopPlayback(){
@@ -81,20 +83,26 @@ class AutoPlayService:AccessibilityService(){
    Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,m,true)
   }else bitmap
   try{
-   for(hit in detector.detect(analyzed,SystemClock.uptimeMillis())){
-    val lane=hit.lane
-    if(lane !in 0..8)continue
-    val runnable=Runnable{
-     if(!playing||epoch!=generation)return@Runnable
-     val nx=config.laneXs[lane];val ny=config.laneYs[lane]
-     val x=if(portrait)ny*bitmap.width else nx*bitmap.width
-     val y=if(portrait)(1f-nx)*bitmap.height else ny*bitmap.height
-     val path=Path().apply{moveTo(x,y)}
-     val stroke=GestureDescription.StrokeDescription(path,0,45)
-     dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(),null,null)
+   val hits=detector.detect(analyzed,SystemClock.uptimeMillis())
+   detected+=hits.size
+   if(hits.isNotEmpty()){
+    // One gesture with multiple strokes avoids cancelling simultaneous notes.
+    val epochHits=hits.filter{it.lane in 0..8}
+    if(epochHits.isNotEmpty()){
+     val builder=GestureDescription.Builder()
+     for(hit in epochHits){
+      val nx=config.laneXs[hit.lane];val ny=config.laneYs[hit.lane]
+      val x=if(portrait)ny*bitmap.width else nx*bitmap.width
+      val y=if(portrait)(1f-nx)*bitmap.height else ny*bitmap.height
+      val path=Path().apply{moveTo(x,y)}
+      builder.addStroke(GestureDescription.StrokeDescription(path,hit.delayMs.coerceIn(0L,130L),42L))
+     }
+     if(playing&&epoch==generation){
+      dispatchGesture(builder.build(),null,null)
+      dispatched+=epochHits.size
+      overlay.updateStatus("AUTO TAP ${dispatched} / EXPERIMENTAL")
+     }
     }
-    scheduled.add(runnable)
-    handler.postDelayed(runnable,hit.delayMs.coerceIn(0L,120L))
    }
   }finally{if(analyzed!==bitmap)analyzed.recycle()}
  }
