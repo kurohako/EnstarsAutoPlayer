@@ -25,6 +25,7 @@ class DebugOverlay(private val context:Context){
  private val handles=mutableListOf<View>()
  private var saveButton:TextView?=null
  private var syncButton:TextView?=null
+ private val floatingButtons=mutableListOf<View>()
  private val density=context.resources.displayMetrics.density
  private val handleSize=(54*density).roundToInt()
  private val windowFlags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -138,6 +139,28 @@ class DebugOverlay(private val context:Context){
   view.invalidate()
   onSave?.invoke()
  }
+ fun showPlayerControls(onStart:()->Unit,onStop:()->Unit){
+  show()
+  clearPlayerControls()
+  val items=listOf("START" to onStart,"STOP" to onStop)
+  for((index,item) in items.withIndex()){
+   val button=TextView(context).apply{
+    text=item.first
+    textSize=12f
+    gravity=Gravity.CENTER
+    setTextColor(Color.WHITE)
+    setBackgroundColor(if(index==0)0xDD187C35.toInt() else 0xDDB32626.toInt())
+    setOnClickListener{item.second.invoke()}
+   }
+   floatingButtons.add(button)
+   wm.addView(button,params((78*density).roundToInt(),(42*density).roundToInt(),
+    (12*density).roundToInt(),((115+index*48)*density).roundToInt(),true))
+  }
+ }
+ private fun clearPlayerControls(){
+  for(button in floatingButtons)wm.removeView(button)
+  floatingButtons.clear()
+ }
  fun showSyncButton(onSync:()->Unit){
   show()
   syncButton?.let{wm.removeView(it)}
@@ -162,6 +185,7 @@ class DebugOverlay(private val context:Context){
   editing=false
   removeControls()
   syncButton?.let{wm.removeView(it)};syncButton=null
+  clearPlayerControls()
   if(attached){wm.removeView(view);attached=false}
  }
  private inner class OverlayView(context:Context):View(context){
