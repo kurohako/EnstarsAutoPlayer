@@ -1,4 +1,19 @@
-# EnstarsAutoPlayer V3.6 — Android no-Root rhythm chart automation (experimental)
+# EnstarsAutoPlayer V3.7 — Slow-video chart refinement (experimental)
+
+## November 2026 slow-reference comparison
+- Compared the unblocked slow-note reference recording `1000029428.mp4` with the existing original-speed chart and the V3.6 test recording `1000029427.mp4`.
+- A **+3500ms recording-origin difference** reconciles their recurring Tap sequences; do not multiply the song chart timestamps by a playback speed factor.
+- Independent color-peak and blue-circle tracking around the judgment targets agreed on **42 new candidate Tap events** (508 → 550).
+- Visual inspection of green right-arrow heads adds **7 right Flick candidates** (24 → 31). Left Flick stays at 42; red pixels on orange Hold/Slide borders created false left-arrow detections, so were not promoted.
+- 62 previously matched Tap timestamps were moved conservatively by at most 45ms (only on agreement between the two analyzers). Final playable candidate counts: **550 Tap + 42 left + 31 right = 623**.
+- Hold/Slide durations are **still unknown** in the supplied video analysis. Their playback engine works only when a complete, independently validated chart supplies timings and paths. This is not a complete 860 Combo chart.
+
+### Compare original and refined results on the same phone
+1. In V3.7, enable **Use slow-video refinements** (default on), then select **USE BUILT-IN VIDEO CHART**.
+2. Keep the same manually calibrated nine points, difficulty and timing offset; start the live and tap the first-note SYNC circle.
+3. To compare, disable the refinement checkbox and select the built-in chart again (the app reloads the saved chart). No reinstall is needed for comparisons.
+4. Existing V3.6 users can import the separate `enstars-video-v2` slow-refined JSON artifact directly without installing a new APK.
+
 
 Build: GitHub Actions > **Build Android APK** > latest successful run > **EnstarsAutoPlayer-debug-apk**.
 Package: `com.enstars.autoplayer`. Android 11+; manual Accessibility Service enablement required.
