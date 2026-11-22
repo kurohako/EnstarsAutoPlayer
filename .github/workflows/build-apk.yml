@@ -30,6 +30,35 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Restore persistent signing key
+        id: signing
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.ENSTARS_KEYSTORE_BASE64 }}
+          ENSTARS_KEYSTORE_PASSWORD: ${{ secrets.ENSTARS_KEYSTORE_PASSWORD }}
+          ENSTARS_KEY_ALIAS: ${{ secrets.ENSTARS_KEY_ALIAS }}
+          ENSTARS_KEY_PASSWORD: ${{ secrets.ENSTARS_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SIGNING_KEY_BASE64" ] && [ -n "$ENSTARS_KEYSTORE_PASSWORD" ] && [ -n "$ENSTARS_KEY_ALIAS" ] && [ -n "$ENSTARS_KEY_PASSWORD" ]; then
+            echo "$SIGNING_KEY_BASE64" | base64 -d > "$RUNNER_TEMP/enstars-release.jks"
+            echo "ENSTARS_KEYSTORE_PATH=$RUNNER_TEMP/enstars-release.jks" >> "$GITHUB_ENV"
+            echo "ENSTARS_KEYSTORE_PASSWORD=$ENSTARS_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ENSTARS_KEY_ALIAS=$ENSTARS_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "ENSTARS_KEY_PASSWORD=$ENSTARS_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Release signing secrets missing; upgrade APK will not be built."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build signed upgrade APK
+        if: steps.signing.outputs.ready == 'true'
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Upload upgrade APK
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnstarsAutoPlayer-upgrade-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
