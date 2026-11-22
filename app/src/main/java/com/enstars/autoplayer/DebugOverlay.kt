@@ -60,6 +60,12 @@ class DebugOverlay(private val context:Context){
   var editing=false
   var status="FIXED"
   private var active=-1
+  private var pointerId=-1
+  private var downX=0f
+  private var downY=0f
+  private var originalX=0f
+  private var originalY=0f
+  private var dragging=false
   private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
   private fun screenPoint(i:Int):Pair<Float,Float> =
    if(width>=height)Pair(xs[i]*width,ys[i]*height)
@@ -70,14 +76,46 @@ class DebugOverlay(private val context:Context){
   }
   override fun onTouchEvent(event:MotionEvent):Boolean{
    if(!editing)return false
+   val density=resources.displayMetrics.density
    when(event.actionMasked){
     MotionEvent.ACTION_DOWN->{
-     if(event.x>width*.75f&&event.y<height*.16f){saveEdit();return true}
-     active=(0..8).minByOrNull{val p=screenPoint(it);hypot(event.x-p.first,event.y-p.second)}?:-1
+     active=-1;pointerId=-1;dragging=false
+     if(event.x>width*.78f && event.y<42*density){saveEdit();return true}
+     val nearest=(0..8).minByOrNull{
+      val p=screenPoint(it)
+      hypot(event.x-p.first,event.y-p.second)
+     } ?: return true
+     val p=screenPoint(nearest)
+     if(hypot(event.x-p.first,event.y-p.second)<=30*density){
+      active=nearest
+      pointerId=event.getPointerId(0)
+      downX=event.x;downY=event.y
+      originalX=p.first;originalY=p.second
+     }
      return true
     }
-    MotionEvent.ACTION_MOVE->{if(active>=0){store(active,event.x,event.y);invalidate()};return true}
-    MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->{active=-1;return true}
+    MotionEvent.ACTION_MOVE->{
+     if(active<0||pointerId<0)return true
+     val index=event.findPointerIndex(pointerId)
+     if(index<0)return true
+     val x=event.getX(index);val y=event.getY(index)
+     if(!dragging && hypot(x-downX,y-downY)>=8*density)dragging=true
+     if(dragging){
+      store(active,originalX+(x-downX),originalY+(y-downY))
+      invalidate()
+     }
+     return true
+    }
+    MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->{
+     active=-1;pointerId=-1;dragging=false
+     return true
+    }
+    MotionEvent.ACTION_POINTER_UP->{
+     if(event.getPointerId(event.actionIndex)==pointerId){
+      active=-1;pointerId=-1;dragging=false
+     }
+     return true
+    }
    }
    return true
   }
