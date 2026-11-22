@@ -81,7 +81,14 @@ class AutoPlayService:AccessibilityService(){
    if(!playing||generation!=epoch)return@showSyncButton
    val syncAt=SystemClock.uptimeMillis()
    val first=taps.first().timeMs
-   val grouped=taps.drop(1).groupBy{it.timeMs}.toSortedMap()
+   // Merge video detections in a narrow 18ms simultaneity window.
+   // This avoids cancelling a multi-touch gesture with another immediately.
+   val grouped=mutableListOf<Pair<Long,MutableList<ChartParser.Tap>>>()
+   for(note in taps.drop(1)){
+    val last=grouped.lastOrNull()
+    if(last!=null&&note.timeMs-last.first<=18L)last.second.add(note)
+    else grouped.add(note.timeMs to mutableListOf(note))
+   }
    overlay.updateStatus("CHART SYNCED / "+grouped.size+" EVENTS")
    for((time,notes) in grouped){
     val whenMs=syncAt+(time-first)+offsetMs
@@ -97,11 +104,11 @@ class AutoPlayService:AccessibilityService(){
        val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
        val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
        val path=Path().apply{moveTo(x,y)}
-       builder.addStroke(GestureDescription.StrokeDescription(path,0,40))
+       builder.addStroke(GestureDescription.StrokeDescription(path,0,24))
       }
       if(dispatchGesture(builder.build(),null,null)){
        dispatched+=notes.size
-       if(dispatched%10==0)overlay.updateStatus("CHART TAPS "+dispatched)
+       if(dispatched%10<notes.size)overlay.updateStatus("CHART TAPS "+dispatched+"/"+(taps.size-1))
       }
      }
     },whenMs)
