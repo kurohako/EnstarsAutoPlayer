@@ -58,18 +58,12 @@ class MainActivity:Activity(){
    }else{
     val coords=p.getString("points","")!!.split(";").mapIndexed{index,point->
      "P${index+1}: ${point}"
-    }.joinToString("\
-")
-    val message="Lock time: ${p.getLong("lock_ms",-1L)} ms\
-"+
-     "Start to lock: ${p.getLong("request_to_lock_ms",-1L)} ms\
-"+
-     "Frame stability: ${p.getFloat("stability_px",-1f)} px\
-"+
-     "Capture: ${p.getInt("width",0)} x ${p.getInt("height",0)}\
-"+
-     "Saved: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved))}\
-"+
+    }.joinToString("\\n")
+    val message="Lock time: ${p.getLong("lock_ms",-1L)} ms\\n"+
+     "Start to lock: ${p.getLong("request_to_lock_ms",-1L)} ms\\n"+
+     "Frame stability: ${p.getFloat("stability_px",-1f)} px\\n"+
+     "Capture: ${p.getInt("width",0)} x ${p.getInt("height",0)}\\n"+
+     "Saved: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(saved))}\\n"+
      coords
     android.app.AlertDialog.Builder(this).setTitle("Last locked 9 points")
      .setMessage(message).setPositiveButton("OK",null).show()
