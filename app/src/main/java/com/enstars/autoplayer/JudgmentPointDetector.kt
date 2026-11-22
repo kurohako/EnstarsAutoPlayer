@@ -73,6 +73,22 @@ class JudgmentPointDetector {
 
  private fun selectArc(candidates:List<Point>,w:Int,h:Int):List<Point>?{
   if(candidates.size<9)return null
+  // Prefer a direct geometry check when the detector already finds exactly nine
+  // circular components. Perspective projection makes the real arc non-quadratic.
+  if(candidates.size==9){
+   val ordered=candidates.sortedBy{it.x}
+   val dx=ordered.zipWithNext().map{(a,b)->b.x-a.x}
+   val top=ordered.first().y
+   val end=ordered.last().y
+   val bottom=ordered[4].y
+   val leftRise=(0..3).count{ordered[it+1].y>=ordered[it].y-h*.025f}
+   val rightFall=(4..7).count{ordered[it+1].y<=ordered[it].y+h*.025f}
+   if(dx.all{it>w*.035f} && dx.maxOrNull()!!<w*.20f &&
+      bottom>top+h*.15f && bottom>end+h*.15f &&
+      abs(top-end)<h*.17f && leftRise>=3 && rightFall>=3){
+    return ordered
+   }
+  }
   // Fit a symmetric U-shaped quadratic using image-derived candidates.
   // Candidate selection is geometric; no predefined lane coordinates.
   val sorted=candidates.sortedBy{it.x}
