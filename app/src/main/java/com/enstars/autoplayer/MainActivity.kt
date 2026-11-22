@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -24,9 +25,9 @@ class MainActivity:Activity(){
    val raw=contentResolver.openInputStream(uri)?.bufferedReader()?.use{it.readText()}
     ?:throw IllegalStateException("Empty chart")
    val chart=ChartParser.parse(raw)
-   if(chart.taps.isEmpty())throw IllegalArgumentException("No supported taps found")
+   if(chart.events.isEmpty())throw IllegalArgumentException("No supported gestures found")
    getSharedPreferences("chart",MODE_PRIVATE).edit().putString("chartText",raw).apply()
-   chartInfo.text="Imported: "+chart.difficulty+" | TAP "+chart.taps.size+" | skipped "+chart.skipped+" | first "+chart.taps.first().timeMs+" ms"
+   chartInfo.text="Imported: "+chart.difficulty+" | "+chart.counts+" | skipped "+chart.skipped+" | first "+chart.events.first().timeMs+" ms"
   }catch(e:Exception){chartInfo.text="Chart import failed: "+e.message}
  }
 
@@ -49,7 +50,7 @@ class MainActivity:Activity(){
    return s
   }
 
-  label("Enstars AutoPlayer V3.3 - Stop protection")
+  label("Enstars AutoPlayer V3.6 - Tap / Flick / Hold / Slide")
   val sessionText=TextView(this).apply{textSize=14f}
   root.addView(sessionText)
   fun refreshSessionInfo(){
@@ -72,16 +73,24 @@ class MainActivity:Activity(){
   refreshSessionInfo()
   chartInfo=TextView(this).apply{text="No chart imported yet";textSize=15f}
   root.addView(chartInfo)
-  button("USE BUNDLED VIDEO CHART (508 TAP candidates)"){
-   try{
-    val raw=BundledVideoChart.asJson()
-    val chart=ChartParser.parse(raw)
-    getSharedPreferences("chart",MODE_PRIVATE).edit().putString("chartText",raw).apply()
-    chartInfo.text="VIDEO: "+chart.taps.size+" candidate TAPs (incomplete)"
-    Toast.makeText(this,"Bundled video chart selected",Toast.LENGTH_LONG).show()
-   }catch(e:Exception){
-    chartInfo.text="Bundled chart error: "+e.message
+  val chartSettings=getSharedPreferences("chart",MODE_PRIVATE)
+  val flickCheck=CheckBox(this).apply{
+   text="Enable experimental video Flicks (42 left / 24 right)"
+   isChecked=chartSettings.getBoolean("enableVideoFlicks",true)
+   setOnCheckedChangeListener{_,checked->
+    chartSettings.edit().putBoolean("enableVideoFlicks",checked).apply()
    }
+  }
+  root.addView(flickCheck)
+  button("USE BUILT-IN VIDEO CHART (508 TAP + Flick candidates)"){
+   try{
+    val raw=BundledVideoChart.asJson(flickCheck.isChecked)
+    val chart=ChartParser.parse(raw)
+    chartSettings.edit().putString("chartText",raw).apply()
+    chartInfo.text="BUNDLED: "+chart.counts+" | unsupported "+chart.skipped+
+      " (hold lengths unavailable)"
+    Toast.makeText(this,"Built-in V3.6 chart selected",Toast.LENGTH_LONG).show()
+   }catch(e:Exception){chartInfo.text="Bundled chart error: "+e.message}
   }
   button("Import chart (.txt or video .json)"){
    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
@@ -93,11 +102,11 @@ class MainActivity:Activity(){
   getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)?.let{
    try{
     val chart=ChartParser.parse(it)
-    chartInfo.text="Saved: "+chart.difficulty+" | TAP "+chart.taps.size+" | skipped "+chart.skipped
+    chartInfo.text="Saved: "+chart.difficulty+" | "+chart.counts+" | skipped "+chart.skipped
    }catch(_:Exception){}
   }
-  label("Imported video candidates are incomplete. Only medium/high TAP candidates are playable; flick and orange notes are skipped.")
-  label("Tap SYNC FIRST NOTE when the first tap reaches its judgment circle.")
+  label("V3.6: Flick guesses are experimental. For full Hold/Slide support import a typed .json or esmchartplayer .txt with start/end times; orange color alone cannot establish hold duration.")
+  label("SYNC circle appears ON the first note target. Touch the circle when the note reaches judgment, and release; sync starts automatically.")
   val syncOffset=EditText(this).apply{
    inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
    setText(getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L).toString())
@@ -124,7 +133,7 @@ class MainActivity:Activity(){
    Toast.makeText(this,"Switch to game, drag 9 targets, tap SAVE at top right",Toast.LENGTH_LONG).show()
   }
   button("Reload saved positions"){service()?.start()}
-  label("2. Experimental Tap-only autoplay. Unsupported: hold, slide, flick, simultaneous gestures. Test in a non-competitive setting.")
+  label("Legacy real-time screenshot TAP mode below (not recommended). The V3.6 chart mode supports mixed gestures when accurate note data is provided.")
   button("Test one tap at point 5"){service()?.testTap()}
   button("Start experimental TAP autoplay"){service()?.startAutoplay()}
   button("STOP autoplay and hide overlay"){service()?.stop()}
