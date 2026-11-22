@@ -165,30 +165,42 @@ class AutoPlayService:AccessibilityService(){
     if(whenMs<syncAt)continue
     handler.postAtTime({
      if(playing&&generation==epoch){
-      val metrics=resources.displayMetrics
-      val portrait=metrics.heightPixels>metrics.widthPixels
-      val builder=GestureDescription.Builder()
-      for(note in notes){
-       if(note.lane !in 0..8)continue
-       val nx=config.laneXs[note.lane];val ny=config.laneYs[note.lane]
-       val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
-       val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
-       val path=Path().apply{moveTo(x,y)}
-       builder.addStroke(GestureDescription.StrokeDescription(path,0,24))
-      }
-      val accepted=dispatchGesture(builder.build(),object:GestureResultCallback(){
-       override fun onCompleted(gestureDescription:GestureDescription?){
-        if(playing&&generation==epoch)chartCompleted++
+      try{
+       val metrics=resources.displayMetrics
+       val portrait=metrics.heightPixels>metrics.widthPixels
+       // Never exceed the platform's gesture stroke limit.
+       // Repeated detections from one lane inside the 24ms window are not
+       // separate fingers; merge them into one touch.
+       val uniqueNotes=notes.filter{it.lane in 0..8}.distinctBy{it.lane}
+       if(uniqueNotes.isNotEmpty()){
+        val builder=GestureDescription.Builder()
+        for(note in uniqueNotes){
+         val nx=config.laneXs[note.lane];val ny=config.laneYs[note.lane]
+         val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
+         val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
+         val path=Path().apply{moveTo(x,y)}
+         builder.addStroke(GestureDescription.StrokeDescription(path,0,24))
+        }
+        val accepted=dispatchGesture(builder.build(),object:GestureResultCallback(){
+         override fun onCompleted(gestureDescription:GestureDescription?){
+          if(playing&&generation==epoch)chartCompleted++
+         }
+         override fun onCancelled(gestureDescription:GestureDescription?){
+          if(playing&&generation==epoch)chartCancelled++
+         }
+        },null)
+        if(accepted)dispatched+=uniqueNotes.size else chartRejected++
+        if(dispatched%10<uniqueNotes.size||chartRejected>0){
+         overlay.updateStatus("TAPS "+dispatched+"/"+chartTotal+
+          " DONE "+chartCompleted+" CXL "+chartCancelled+" REJ "+chartRejected)
+        }
        }
-       override fun onCancelled(gestureDescription:GestureDescription?){
-        if(playing&&generation==epoch)chartCancelled++
-       }
-      },null)
-      if(accepted)dispatched+=notes.size
-      else chartRejected++
-      if(dispatched%10<notes.size||chartRejected>0){
-       overlay.updateStatus("TAPS "+dispatched+"/"+chartTotal+
-        " DONE "+chartCompleted+" CXL "+chartCancelled+" REJ "+chartRejected)
+      }catch(e:Exception){
+       chartRejected++
+       getSharedPreferences("sessionDiagnostics",MODE_PRIVATE).edit()
+        .putString("lastDispatchError",e.javaClass.simpleName+": "+(e.message?:""))
+        .putLong("lastDispatchErrorAt",System.currentTimeMillis()).apply()
+       overlay.updateStatus("GESTURE ERROR "+e.javaClass.simpleName)
       }
      }
     },whenMs)
