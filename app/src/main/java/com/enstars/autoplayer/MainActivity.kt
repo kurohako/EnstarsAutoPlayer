@@ -14,6 +14,22 @@ import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity:Activity(){
+ private val chartRequest=451
+ private lateinit var chartInfo:TextView
+ override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){
+  super.onActivityResult(requestCode,resultCode,data)
+  if(requestCode!=chartRequest||resultCode!=RESULT_OK)return
+  val uri=data?.data?:return
+  try{
+   val raw=contentResolver.openInputStream(uri)?.bufferedReader()?.use{it.readText()}
+    ?:throw IllegalStateException("Empty chart")
+   val chart=ChartParser.parse(raw)
+   if(chart.taps.isEmpty())throw IllegalArgumentException("No supported taps found")
+   getSharedPreferences("chart",MODE_PRIVATE).edit().putString("chartText",raw).apply()
+   chartInfo.text="Imported: "+chart.difficulty+" | TAP "+chart.taps.size+" | skipped "+chart.skipped+" | first "+chart.taps.first().timeMs+" ms"
+  }catch(e:Exception){chartInfo.text="Chart import failed: "+e.message}
+ }
+
  override fun onCreate(savedInstanceState:Bundle?){
   super.onCreate(savedInstanceState)
   val root=LinearLayout(this).apply{
@@ -31,7 +47,24 @@ class MainActivity:Activity(){
    if(s==null)Toast.makeText(this,"Enable Accessibility Service first",Toast.LENGTH_LONG).show()
    return s
   }
-  label("Enstars AutoPlayer V2.8 - Manual 9-point calibration")
+
+  label("Enstars AutoPlayer V3 - Chart prototype")
+  chartInfo=TextView(this).apply{text="No chart imported yet";textSize=15f}
+  root.addView(chartInfo)
+  button("Import esmchartplayer .txt chart"){
+   startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
+    addCategory(Intent.CATEGORY_OPENABLE)
+    type="text/plain"
+   },chartRequest)
+  }
+  getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)?.let{
+   try{
+    val chart=ChartParser.parse(it)
+    chartInfo.text="Saved: "+chart.difficulty+" | TAP "+chart.taps.size+" | skipped "+chart.skipped
+   }catch(_:Exception){}
+  }
+  label("Chart import is preview-only. Song synchronization is needed before scheduled taps.")
+
   label("1. Open the game Live screen. Return here and choose Edit 9 points. Drag each yellow crosshair to its judgment circle. Tap SAVE in the upper right.")
   button("Open Accessibility Settings"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
   button("Show saved 9 points"){service()?.start()}
