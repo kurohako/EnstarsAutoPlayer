@@ -21,6 +21,7 @@ class AutoPlayService:AccessibilityService() {
  private var calibrated=false
  private var lockedPoints:List<JudgmentPointDetector.Point>?=null
  private var lockStartedAt=0L
+ private var calibrationRequestedAt=0L
  private var lastFrameWidth=1
  private var lastFrameHeight=1
  private var calibrationCount=0
@@ -34,6 +35,7 @@ class AutoPlayService:AccessibilityService() {
  fun start(){
   if(running)return
   resetCalibration()
+  calibrationRequestedAt=SystemClock.uptimeMillis()
   config=GameConfig.load(this);detector=NoteDetector(config)
   lastTap=LongArray(config.laneXs.size);running=true;overlay.show();overlay.update(null,"WAITING FOR LIVE...",1,1);handler.post(::capture)
  }
@@ -43,6 +45,7 @@ class AutoPlayService:AccessibilityService() {
  }
  fun restartCalibration(){
   resetCalibration()
+  calibrationRequestedAt=SystemClock.uptimeMillis()
   if(!running)start()
   else{
    handler.removeCallbacksAndMessages(null)
@@ -99,7 +102,21 @@ class AutoPlayService:AccessibilityService() {
      lockedPoints=points.toList()
      calibrated=true
      config=config.copy(laneXs=points.map{it.x/bitmap.width},laneYs=points.map{it.y/bitmap.height})
-     overlay.update(lockedPoints,"9/9 LOCKED - ONE SHOT",bitmap.width,bitmap.height)
+     val elapsed=(SystemClock.uptimeMillis()-lockStartedAt).coerceAtLeast(0L)
+     val fromStart=(SystemClock.uptimeMillis()-calibrationRequestedAt).coerceAtLeast(0L)
+     val drift=previousPoints?.zip(points)?.map{(a,b)->
+      kotlin.math.hypot(a.x-b.x,a.y-b.y)
+     }?.maxOrNull() ?: 0f
+     getSharedPreferences("calibration",MODE_PRIVATE).edit()
+      .putLong("lock_ms",elapsed)
+      .putLong("request_to_lock_ms",fromStart)
+      .putFloat("stability_px",drift)
+      .putInt("width",bitmap.width)
+      .putInt("height",bitmap.height)
+      .putLong("saved_at",System.currentTimeMillis())
+      .putString("points",points.joinToString(";"){"${it.x},${it.y}"})
+      .apply()
+     overlay.update(lockedPoints,"9/9 LOCKED ${elapsed}ms",bitmap.width,bitmap.height)
      return
     }
    }else{
