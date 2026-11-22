@@ -9,7 +9,7 @@ object ChartParser {
  data class Chart(val difficulty:String,val taps:List<Tap>,val skipped:Int)
  private data class Section(val offset:Double,val beats:Int,val bpm:Double)
  private val sectionRegex=Regex("""^(\d+)#([\d.]+):(\d+):([\d.]+)$""")
- private val timeRegex=Regex("""^(?:(\d+):)?(?:(\d+)_)?(?:(\d+))?(?:\+(\d+)/(\d+)|\.(\d+))?$""")
+ private val timeRegex=Regex("""^(?:(\d+):)?(?:(\d+)_|_(\d+))?(?:(\d+))?(?:\+(\d+)/(\d+)|\.(\d+))?$""")
  private val noteRegex=Regex("""@([OSLRUD])(-?\d+(?:\.5)?)(?:G\d+)?""")
  fun parse(input:String):Chart {
   val sections=mutableMapOf<Int,Section>()
@@ -38,10 +38,10 @@ object ChartParser {
     }else{
      val m=timeRegex.matchEntire(prefix)
      if(m==null){skipped++;continue}
-     val (s,b,bt,num,den,dec)=m.destructured
+     val (s,b,underBeat,plainBeat,num,den,dec)=m.destructured
      if(s.isNotEmpty())section=s.toInt()
      if(b.isNotEmpty())bar=b.toInt()
-     if(bt.isNotEmpty())beat=bt.toInt()
+     if(underBeat.isNotEmpty())beat=underBeat.toInt()\n     if(plainBeat.isNotEmpty())beat=plainBeat.toInt()
      fraction=when{
       den.isNotEmpty()&&den.toInt()!=0->num.toDouble()/den.toDouble()
       dec.isNotEmpty()->("0."+dec).toDouble()
