@@ -24,6 +24,11 @@ class AutoPlayService:AccessibilityService(){
  private var dispatched=0
  private var detected=0
  private var frames=0
+ private var chartCompleted=0
+ private var chartCancelled=0
+ private var chartRejected=0
+ private var chartTotal=0
+ private var chartActive=false
  private var screenshotErrors=0
  private var captureBackoffMs=0L
  override fun onServiceConnected(){super.onServiceConnected();instance=this;overlay=DebugOverlay(this)}
@@ -70,8 +75,11 @@ class AutoPlayService:AccessibilityService(){
   if(chart.taps.size<2)return
   start()
   playing=true
+  chartActive=true
+  dispatched=0;chartCompleted=0;chartCancelled=0;chartRejected=0
   val epoch=generation
   val taps=chart.taps.sortedBy{it.timeMs}
+  chartTotal=taps.size
   overlay.showPlayerControls(
    onStart={startChartAutoplay(offsetMs)},
    onStop={stop()}
@@ -89,10 +97,13 @@ class AutoPlayService:AccessibilityService(){
    val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
    val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
    val firstPath=Path().apply{moveTo(x,y)}
-   if(dispatchGesture(GestureDescription.Builder()
-     .addStroke(GestureDescription.StrokeDescription(firstPath,0,24)).build(),null,null)){
-    dispatched++
-   }
+   val acceptedFirst=dispatchGesture(GestureDescription.Builder()
+     .addStroke(GestureDescription.StrokeDescription(firstPath,0,24)).build(),
+     object:GestureResultCallback(){
+      override fun onCompleted(gestureDescription:GestureDescription?){chartCompleted++}
+      override fun onCancelled(gestureDescription:GestureDescription?){chartCancelled++}
+     },null)
+   if(acceptedFirst)dispatched++ else chartRejected++
    // Merge video detections in a narrow 18ms simultaneity window.
    // This avoids cancelling a multi-touch gesture with another immediately.
    val grouped=mutableListOf<Pair<Long,MutableList<ChartParser.Tap>>>()
@@ -102,6 +113,15 @@ class AutoPlayService:AccessibilityService(){
     else grouped.add(note.timeMs to mutableListOf(note))
    }
    overlay.updateStatus("CHART SYNCED / "+grouped.size+" EVENTS")
+   val dashboard=object:Runnable{
+    override fun run(){
+     if(!playing||generation!=epoch||!chartActive)return
+     overlay.updateStatus("CHART "+dispatched+"/"+chartTotal+
+      " OK "+chartCompleted+" CXL "+chartCancelled+" REJ "+chartRejected)
+     handler.postDelayed(this,1000L)
+    }
+   }
+   handler.postDelayed(dashboard,1000L)
    for((time,notes) in grouped){
     val whenMs=syncAt+(time-first)+offsetMs
     if(whenMs<syncAt)continue
@@ -118,9 +138,19 @@ class AutoPlayService:AccessibilityService(){
        val path=Path().apply{moveTo(x,y)}
        builder.addStroke(GestureDescription.StrokeDescription(path,0,24))
       }
-      if(dispatchGesture(builder.build(),null,null)){
-       dispatched+=notes.size
-       if(dispatched%10<notes.size)overlay.updateStatus("CHART TAPS "+dispatched+"/"+(taps.size-1))
+      val accepted=dispatchGesture(builder.build(),object:GestureResultCallback(){
+       override fun onCompleted(gestureDescription:GestureDescription?){
+        if(playing&&generation==epoch)chartCompleted++
+       }
+       override fun onCancelled(gestureDescription:GestureDescription?){
+        if(playing&&generation==epoch)chartCancelled++
+       }
+      },null)
+      if(accepted)dispatched+=notes.size
+      else chartRejected++
+      if(dispatched%10<notes.size||chartRejected>0){
+       overlay.updateStatus("TAPS "+dispatched+"/"+chartTotal+
+        " DONE "+chartCompleted+" CXL "+chartCancelled+" REJ "+chartRejected)
       }
      }
     },whenMs)
@@ -149,10 +179,11 @@ class AutoPlayService:AccessibilityService(){
   overlay.updateStatus("TEST TAP IN 5 SEC - OPEN GAME")
  }
  private fun stopPlayback(){
-  playing=false;generation++
+  playing=false;chartActive=false;generation++
   handler.removeCallbacksAndMessages(null)
   busy=false
  }
+ fun hideWhenIdle(){if(!playing&&::overlay.isInitialized)overlay.close()}
  fun stop(){stopPlayback();if(::overlay.isInitialized)overlay.close()}
  private fun capture(){
   if(!playing)return
