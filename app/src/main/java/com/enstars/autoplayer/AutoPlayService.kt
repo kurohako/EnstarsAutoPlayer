@@ -23,6 +23,7 @@ class AutoPlayService:AccessibilityService(){
  private var detector=NoteDetector(config)
  private var dispatched=0
  private var detected=0
+ private var frames=0
  override fun onServiceConnected(){super.onServiceConnected();instance=this;overlay=DebugOverlay(this)}
  override fun onAccessibilityEvent(event:AccessibilityEvent?)=Unit
  override fun onInterrupt(){stop()}
@@ -43,14 +44,32 @@ class AutoPlayService:AccessibilityService(){
   if(!::overlay.isInitialized)return
   start()
   playing=true
-  dispatched=0;detected=0
+  dispatched=0;detected=0;frames=0
   overlay.updateStatus("AUTO TAP - EXPERIMENTAL")
   handler.post(::capture)
+ }
+ fun testTap(){
+  stopPlayback()
+  config=GameConfig.load(this)
+  overlay.show();overlay.showFixed(config)
+  val metrics=resources.displayMetrics
+  val landscape=metrics.widthPixels>=metrics.heightPixels
+  val nx=config.laneXs[4];val ny=config.laneYs[4]
+  val x=if(landscape)nx*metrics.widthPixels else ny*metrics.widthPixels
+  val y=if(landscape)ny*metrics.heightPixels else (1f-nx)*metrics.heightPixels
+  val path=Path().apply{moveTo(x,y)}
+  val gesture=GestureDescription.Builder()
+   .addStroke(GestureDescription.StrokeDescription(path,0,60)).build()
+  val accepted=dispatchGesture(gesture,object:GestureResultCallback(){
+   override fun onCompleted(gestureDescription:GestureDescription?){overlay.updateStatus("TEST TAP COMPLETED")}
+   override fun onCancelled(gestureDescription:GestureDescription?){overlay.updateStatus("TEST TAP CANCELLED")}
+  },null)
+  if(!accepted)overlay.updateStatus("TEST TAP REJECTED")
  }
  private fun stopPlayback(){
   playing=false;generation++
   handler.removeCallbacksAndMessages(null)
-  scheduled.clear()
+  busy=false
  }
  fun stop(){stopPlayback();if(::overlay.isInitialized)overlay.close()}
  private fun capture(){
@@ -71,9 +90,9 @@ class AutoPlayService:AccessibilityService(){
       }finally{buffer.close()}
      }catch(_:Exception){}finally{busy=false;next(epoch)}
     }
-    override fun onFailure(errorCode:Int){busy=false;next(epoch)}
+    override fun onFailure(errorCode:Int){busy=false;overlay.updateStatus("SCREENSHOT ERROR "+errorCode);next(epoch)}
    })
-  }catch(_:Exception){busy=false;next(epoch)}
+  }catch(e:Exception){busy=false;overlay.updateStatus("CAPTURE ERROR "+e.javaClass.simpleName);next(epoch)}
  }
  private fun next(epoch:Int){if(playing&&epoch==generation)handler.postDelayed(::capture,config.pollMs)}
  private fun process(bitmap:Bitmap,epoch:Int){
@@ -83,6 +102,8 @@ class AutoPlayService:AccessibilityService(){
    Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,m,true)
   }else bitmap
   try{
+   frames++
+   if(frames%20==0)overlay.updateStatus("FRAMES "+frames+" HITS "+detected+" TAPS "+dispatched)
    val hits=detector.detect(analyzed,SystemClock.uptimeMillis())
    detected+=hits.size
    if(hits.isNotEmpty()){
