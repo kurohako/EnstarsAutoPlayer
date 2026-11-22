@@ -1,0 +1,17 @@
+{
+  "format": "enstars-video-v2",
+  "description": "DEMONSTRATION ONLY. Times and lanes here are not a real song chart.",
+  "notes": [
+    {"timeMs": 1000, "lane": 6, "type": "tap", "confidence": "high"},
+    {"timeMs": 1400, "lane": 8, "type": "flick_left", "confidence": "high"},
+    {"timeMs": 1800, "lane": 2, "type": "flick_right", "confidence": "high"},
+    {"timeMs": 2200, "lane": 5, "type": "hold", "endTimeMs": 2900, "confidence": "high"},
+    {"timeMs": 3200, "lane": 3, "type": "slide", "endTimeMs": 4550, "confidence": "high",
+     "path": [
+      {"timeMs": 3650, "lane": 4},
+      {"timeMs": 4100, "lane": 5},
+      {"timeMs": 4550, "lane": 6}
+     ]},
+    {"timeMs": 4900, "lane": 7, "type": "hold", "endTimeMs": 5500, "release": "flick_right", "confidence": "high"}
+  ]
+}
