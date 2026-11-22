@@ -7,7 +7,7 @@ import java.util.zip.InflaterInputStream
 import org.json.JSONObject
 import org.json.JSONArray
 
-/** 507 unverified TAP candidates extracted from the user-provided 60fps video.
+/** 508 unverified TAP candidates (one first-hit correction) extracted from the user-provided 60fps video.
  * Payload is zlib-compressed records: [big-endian timeMs(4), lane1to9(1), confidence(1)].
  */
 object BundledVideoChart {
@@ -26,6 +26,11 @@ object BundledVideoChart {
      .put("type","tap").put("confidence",if(score==1)"high" else "medium"))
    }
   }
+  // Verified against the source video: first lane-6 hit at ~6.83 seconds.
+  // The original vision tracker missed this head, making first-note sync
+  // incorrectly anchor to the second note (~7.58 seconds, lane 8).
+  notes.put(JSONObject().put("timeMs",6833).put("lane",6)
+   .put("type","tap").put("confidence","medium"))
   return JSONObject().put("format","enstars-video-v1")
    .put("sourceVideo","1000029417.mp4")
    .put("recognition","Unverified video candidates, incomplete")
