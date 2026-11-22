@@ -78,9 +78,9 @@ class JudgmentPointDetector {
   val sorted=candidates.sortedBy{it.x}
   var best:List<Point>?=null
   var bestScore=Float.NEGATIVE_INFINITY
-  val left=sorted.filter{it.x<w*.4f}.take(30)
-  val right=sorted.filter{it.x>w*.6f}.take(30)
-  val bottoms=sorted.filter{it.y>h*.65f}.take(35)
+  val left=sorted.filter{it.x<w*.4f}.take(12)
+  val right=sorted.filter{it.x>w*.6f}.take(12)
+  val bottoms=sorted.filter{it.y>h*.65f}.take(15)
   for(a in left)for(b in right)for(mid in bottoms){
    if(mid.x<=a.x||mid.x>=b.x)continue
    val span=b.x-a.x
