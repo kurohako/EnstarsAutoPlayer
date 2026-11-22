@@ -52,7 +52,7 @@ class MainActivity:Activity(){
   label("Enstars AutoPlayer V3.1 - Video chart importer")
   chartInfo=TextView(this).apply{text="No chart imported yet";textSize=15f}
   root.addView(chartInfo)
-  button("USE BUNDLED VIDEO CHART (507 TAP candidates)"){
+  button("USE BUNDLED VIDEO CHART (508 TAP candidates)"){
    try{
     val raw=BundledVideoChart.asJson()
     val chart=ChartParser.parse(raw)
