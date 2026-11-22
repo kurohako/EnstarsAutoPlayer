@@ -54,6 +54,12 @@ object GestureBatcher {
    // Merge near-consecutive taps as one gesture to prevent Android from
    // cancelling a gesture whose last input event is still being processed.
    // 65ms tolerance is bounded by platform stroke limit below.
+   if(group.isNotEmpty() && group.size>=10 && note.timeMs<=end){
+    // Impossible to send >10 overlapping strokes. Do not create a second
+    // simultaneous gesture, which would cancel the first ten touches.
+    overflow++
+    continue
+   }
    if(group.isNotEmpty() && (note.timeMs>end+65L || group.size>=10))flush()
    if(group.isEmpty()){start=note.timeMs;end=finish}
    else end=maxOf(end,finish)
