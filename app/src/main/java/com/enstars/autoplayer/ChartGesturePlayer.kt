@@ -33,9 +33,10 @@ class ChartGesturePlayer(
  private var cancelled=0
  private var rejected=0
  private var error=""
+ private var skippedForStrokeLimit=0
  val total:Int=plan.batches.sumOf{it.notes.size}
  val first:PlayNote?=plan.batches.firstOrNull()?.notes?.firstOrNull()
- fun summary():Stats=Stats(submitted,completed,cancelled,rejected,plan.overflow,total,error)
+ fun summary():Stats=Stats(submitted,completed,cancelled,rejected,plan.overflow+skippedForStrokeLimit,total,error)
  fun stop(){
   stopped=true
   runnables.forEach{handler.removeCallbacks(it)}
@@ -73,39 +74,66 @@ class ChartGesturePlayer(
   return if(w>=h)Pair((x+dx).coerceIn(1f,w-2f),(y+dy).coerceIn(1f,h-2f))
    else Pair((x+dy).coerceIn(1f,w-2f),(y-dx).coerceIn(1f,h-2f))
  }
- private fun makeStroke(note:PlayNote,startMs:Long,w:Int,h:Int):GestureDescription.StrokeDescription{
-  val duration=(note.end()-note.timeMs).coerceIn(24L,30000L)
+ private fun makeStrokes(note:PlayNote,startMs:Long,w:Int,h:Int):List<GestureDescription.StrokeDescription>{
   val startDelay=(note.timeMs-startMs).coerceAtLeast(0L)
   val (startX,startY)=screenCoords(note.lane,w,h)
-  val path=Path().apply{
-   moveTo(startX,startY)
-   when(note.kind){
-    NoteKind.FLICK_LEFT,NoteKind.FLICK_RIGHT,
-    NoteKind.FLICK_UP,NoteKind.FLICK_DOWN->{
-     val (dx,dy)=shifted(startX,startY,note.kind,w,h)
-     lineTo(dx,dy)
-    }
-    NoteKind.SLIDE->{
-     for(point in note.path.sortedBy{it.timeMs}){
-      val (px,py)=screenCoords(point.lane,w,h)
-      lineTo(px,py)
-     }
-     if(note.releaseKind!=null){
-      val (px,py)=screenCoords(note.path.lastOrNull()?.lane?:note.lane,w,h)
-      val (fx,fy)=shifted(px,py,note.releaseKind,w,h)
-      lineTo(fx,fy)
-     }
-    }
-    NoteKind.HOLD->{
-     if(note.releaseKind!=null){
-      val (fx,fy)=shifted(startX,startY,note.releaseKind,w,h)
-      lineTo(fx,fy)
-     }
-    }
-    else->{}
-   }
+  val result=mutableListOf<GestureDescription.StrokeDescription>()
+  fun simplePath(x:Float,y:Float,endX:Float?=null,endY:Float?=null)=Path().apply{
+   moveTo(x,y)
+   if(endX!=null&&endY!=null)lineTo(endX,endY)
   }
-  return GestureDescription.StrokeDescription(path,startDelay,duration)
+  if(note.kind==NoteKind.TAP){
+   return listOf(GestureDescription.StrokeDescription(simplePath(startX,startY),startDelay,30L))
+  }
+  if(note.kind in listOf(NoteKind.FLICK_LEFT,NoteKind.FLICK_RIGHT,NoteKind.FLICK_UP,NoteKind.FLICK_DOWN)){
+   val (endX,endY)=shifted(startX,startY,note.kind,w,h)
+   return listOf(GestureDescription.StrokeDescription(
+    simplePath(startX,startY,endX,endY),startDelay,75L))
+  }
+  val holdDuration=(note.endTimeMs-note.timeMs).coerceIn(30L,30000L)
+  if(note.kind==NoteKind.HOLD){
+   val first=GestureDescription.StrokeDescription(
+    simplePath(startX,startY),startDelay,holdDuration,note.releaseKind!=null)
+   result.add(first)
+   if(note.releaseKind!=null){
+    val (endX,endY)=shifted(startX,startY,note.releaseKind,w,h)
+    result.add(first.continueStroke(simplePath(startX,startY,endX,endY),
+     startDelay+holdDuration,70L,false))
+   }
+   return result
+  }
+  // Slide: each timed knot is represented by a continuation segment.
+  // Unlike a single lineTo() path this preserves timing between knots.
+  val points=mutableListOf(ChartWaypoint(note.timeMs,note.lane))
+  points.addAll(note.path.filter{it.timeMs>note.timeMs&&it.timeMs<=note.endTimeMs}.sortedBy{it.timeMs})
+  if(points.last().timeMs<note.endTimeMs){
+   points.add(ChartWaypoint(note.endTimeMs,points.last().lane))
+  }
+  if(points.size<2)return listOf(GestureDescription.StrokeDescription(
+   simplePath(startX,startY),startDelay,holdDuration))
+  var last:GestureDescription.StrokeDescription?=null
+  for(i in 1 until points.size){
+   val from=points[i-1]
+   val to=points[i]
+   val (px,py)=screenCoords(from.lane,w,h)
+   val (qx,qy)=screenCoords(to.lane,w,h)
+   val duration=(to.timeMs-from.timeMs).coerceAtLeast(1L)
+   val delay=(from.timeMs-startMs).coerceAtLeast(0L)
+   val path=simplePath(px,py,qx,qy)
+   val keep=i<points.lastIndex||note.releaseKind!=null
+   val next=if(last==null)GestureDescription.StrokeDescription(path,delay,duration,keep)
+    else last.continueStroke(path,delay,duration,keep)
+   result.add(next)
+   last=next
+  }
+  if(note.releaseKind!=null&&last!=null){
+   val tail=points.last()
+   val (px,py)=screenCoords(tail.lane,w,h)
+   val (qx,qy)=shifted(px,py,note.releaseKind,w,h)
+   result.add(last.continueStroke(simplePath(px,py,qx,qy),
+    (tail.timeMs-startMs).coerceAtLeast(0L),70L,false))
+  }
+  return result
  }
  private fun send(batch:GestureBatcher.Batch){
   val metrics=service.resources.displayMetrics
@@ -113,7 +141,19 @@ class ChartGesturePlayer(
   val h=metrics.heightPixels
   try{
    val builder=GestureDescription.Builder()
-   batch.notes.forEach{builder.addStroke(makeStroke(it,batch.startMs,w,h))}
+   var strokeCount=0
+   var validNotes=0
+   for(note in batch.notes){
+    val strokes=makeStrokes(note,batch.startMs,w,h)
+    if(strokeCount+strokes.size>GestureDescription.getMaxStrokeCount()){
+     skippedForStrokeLimit++
+     continue
+    }
+    strokes.forEach{builder.addStroke(it)}
+    strokeCount+=strokes.size
+    validNotes++
+   }
+   if(strokeCount==0){progress(summary());return}
    val gesture=builder.build()
    val accepted=service.dispatchGesture(gesture,object:AccessibilityService.GestureResultCallback(){
     override fun onCompleted(gestureDescription:GestureDescription?){
@@ -127,7 +167,7 @@ class ChartGesturePlayer(
      progress(summary())
     }
    },handler)
-   if(accepted)submitted+=batch.notes.size else rejected++
+   if(accepted)submitted+=validNotes else rejected++
   }catch(e:Exception){
    rejected++
    error=e.javaClass.simpleName+": "+(e.message?:"")
