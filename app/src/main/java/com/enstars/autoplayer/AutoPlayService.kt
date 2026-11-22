@@ -52,6 +52,7 @@ class AutoPlayService:AccessibilityService(){
   stopPlayback()
   config=GameConfig.load(this)
   overlay.show();overlay.showFixed(config)
+  handler.postDelayed({
   val metrics=resources.displayMetrics
   val landscape=metrics.widthPixels>=metrics.heightPixels
   val nx=config.laneXs[4];val ny=config.laneYs[4]
@@ -65,6 +66,8 @@ class AutoPlayService:AccessibilityService(){
    override fun onCancelled(gestureDescription:GestureDescription?){overlay.updateStatus("TEST TAP CANCELLED")}
   },null)
   if(!accepted)overlay.updateStatus("TEST TAP REJECTED")
+  },5000L)
+  overlay.updateStatus("TEST TAP IN 5 SEC - OPEN GAME")
  }
  private fun stopPlayback(){
   playing=false;generation++
@@ -88,7 +91,7 @@ class AutoPlayService:AccessibilityService(){
        try{if(bitmap!=null&&playing&&epoch==generation)process(bitmap,epoch)}
        finally{bitmap?.recycle()}
       }finally{buffer.close()}
-     }catch(_:Exception){}finally{busy=false;next(epoch)}
+     }catch(e:Exception){overlay.updateStatus("PROCESS ERROR "+e.javaClass.simpleName)}finally{busy=false;next(epoch)}
     }
     override fun onFailure(errorCode:Int){busy=false;overlay.updateStatus("SCREENSHOT ERROR "+errorCode);next(epoch)}
    })
@@ -119,8 +122,9 @@ class AutoPlayService:AccessibilityService(){
       builder.addStroke(GestureDescription.StrokeDescription(path,hit.delayMs.coerceIn(0L,130L),42L))
      }
      if(playing&&epoch==generation){
-      dispatchGesture(builder.build(),null,null)
-      dispatched+=epochHits.size
+      val accepted=dispatchGesture(builder.build(),null,null)
+      if(accepted)dispatched+=epochHits.size
+      else overlay.updateStatus("AUTO GESTURE REJECTED")
       overlay.updateStatus("AUTO TAP ${dispatched} / EXPERIMENTAL")
      }
     }
