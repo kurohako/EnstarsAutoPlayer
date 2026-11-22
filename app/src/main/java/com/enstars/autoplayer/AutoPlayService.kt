@@ -50,6 +50,18 @@ class AutoPlayService:AccessibilityService(){
   overlay.updateStatus("AUTO TAP - EXPERIMENTAL")
   handler.post(::capture)
  }
+ fun showFloatingControls(){
+  if(!::overlay.isInitialized)return
+  start()
+  overlay.showPlayerControls(
+   onStart={
+    val offset=getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L)
+    startChartAutoplay(offset)
+   },
+   onStop={stop()}
+  )
+  overlay.updateStatus("FLOATING CONTROL READY")
+ }
  fun startChartAutoplay(offsetMs:Long){
   if(!::overlay.isInitialized)return
   val raw=getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)
@@ -60,6 +72,10 @@ class AutoPlayService:AccessibilityService(){
   playing=true
   val epoch=generation
   val taps=chart.taps.sortedBy{it.timeMs}
+  overlay.showPlayerControls(
+   onStart={startChartAutoplay(offsetMs)},
+   onStop={stop()}
+  )
   overlay.updateStatus("WAIT FIRST NOTE - SYNC")
   overlay.showSyncButton{
    if(!playing||generation!=epoch)return@showSyncButton
