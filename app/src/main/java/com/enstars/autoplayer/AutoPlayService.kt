@@ -81,12 +81,24 @@ class AutoPlayService:AccessibilityService(){
    if(!playing||generation!=epoch)return@showSyncButton
    val syncAt=SystemClock.uptimeMillis()
    val first=taps.first().timeMs
+   // The SYNC button is not a gameplay touch. Trigger the first chart tap too.
+   val firstNote=taps.first()
+   val metrics=resources.displayMetrics
+   val portrait=metrics.heightPixels>metrics.widthPixels
+   val nx=config.laneXs[firstNote.lane];val ny=config.laneYs[firstNote.lane]
+   val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
+   val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
+   val firstPath=Path().apply{moveTo(x,y)}
+   if(dispatchGesture(GestureDescription.Builder()
+     .addStroke(GestureDescription.StrokeDescription(firstPath,0,24)).build(),null,null)){
+    dispatched++
+   }
    // Merge video detections in a narrow 18ms simultaneity window.
    // This avoids cancelling a multi-touch gesture with another immediately.
    val grouped=mutableListOf<Pair<Long,MutableList<ChartParser.Tap>>>()
    for(note in taps.drop(1)){
     val last=grouped.lastOrNull()
-    if(last!=null&&note.timeMs-last.first<=18L)last.second.add(note)
+    if(last!=null&&note.timeMs-last.first<=24L)last.second.add(note)
     else grouped.add(note.timeMs to mutableListOf(note))
    }
    overlay.updateStatus("CHART SYNCED / "+grouped.size+" EVENTS")
