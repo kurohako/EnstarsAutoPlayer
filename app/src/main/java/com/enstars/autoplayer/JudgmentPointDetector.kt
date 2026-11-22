@@ -18,11 +18,62 @@ class JudgmentPointDetector {
   val small=Bitmap.createScaledBitmap(bitmap,sw,sh,true)
   try {
    val candidates=extractCandidates(small).map{Point(it.x*w/sw,it.y*h/sh,it.confidence)}
-   val chosen=selectArc(candidates,w,h)
+   val rough=selectArc(candidates,w,h)
+   val chosen=rough?.map { refineCircleCenter(small,it.x*sw/w,it.y*sh/h)?.let { q -> Point(q.x*w/sw,q.y*h/sh,q.confidence) } ?: it }
    if(chosen!=null){lastGood=chosen;missing=0}
    else if(++missing>12)lastGood=null
    return Result(chosen,candidates,candidates.size)
   }finally{if(small!==bitmap)small.recycle()}
+ }
+
+ /**
+  * Multiscale radial template derived from the supplied concentric-ring icon:
+  * bright central disc, darker annulus, bright outer ring, darker exterior.
+  * The connecting judgment line is suppressed by using off-axis sample angles.
+  * Coordinates are refined from the image, never from hardcoded lane positions.
+  */
+ private fun refineCircleCenter(image:Bitmap,cx:Float,cy:Float):Point? {
+  val w=image.width;val h=image.height
+  val nominal=(w*.019f).coerceAtLeast(5f)
+  val radii=listOf(.72f,.86f,1f,1.14f,1.28f).map{it*nominal}
+  var bestScore=Float.NEGATIVE_INFINITY
+  var best:Point?=null
+  val search=(nominal*.6f).toInt().coerceIn(3,13)
+  for(y in (cy.toInt()-search)..(cy.toInt()+search) step 2){
+   for(x in (cx.toInt()-search)..(cx.toInt()+search) step 2){
+    if(x<2||y<2||x>=w-2||y>=h-2)continue
+    val center=light(image.getPixel(x,y))
+    for(r in radii){
+     if(x-r*1.35f<0||x+r*1.35f>=w||y-r*1.35f<0||y+r*1.35f>=h)continue
+     var ring=0f;var moat=0f;var outside=0f
+     var n=0
+     // Avoid horizontal angles: the line through the icon biases brightness.
+     for(k in 0 until 16){
+      val theta=(k+.5)*Math.PI/8.0
+      val dx=cos(theta).toFloat();val dy=sin(theta).toFloat()
+      if(abs(dy)<.27f)continue
+      ring+=light(image.getPixel((x+dx*r).toInt(),(y+dy*r).toInt()))
+      moat+=light(image.getPixel((x+dx*r*.65f).toInt(),(y+dy*r*.65f).toInt()))
+      outside+=light(image.getPixel((x+dx*r*1.28f).toInt(),(y+dy*r*1.28f).toInt()))
+      n++
+     }
+     if(n==0)continue
+     ring/=n;moat/=n;outside/=n
+     val score=.32f*center+.40f*ring+.20f*(ring-moat)+.08f*(ring-outside) -
+      .10f*hypot(x-cx,y-cy)/nominal
+     if(score>bestScore){
+      bestScore=score
+      best=Point(x.toFloat(),y.toFloat(),score)
+     }
+    }
+   }
+  }
+  // Reject ambiguous refinement rather than forcing a shift.
+  return best?.takeIf{bestScore>.57f && hypot(it.x-cx,it.y-cy)<nominal*.65f}
+ }
+ private fun light(color:Int):Float{
+  val r=Color.red(color);val g=Color.green(color);val b=Color.blue(color)
+  return minOf(r,g,b)/255f
  }
 
  private fun extractCandidates(image:Bitmap):List<Point>{
