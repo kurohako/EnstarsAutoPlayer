@@ -24,6 +24,8 @@ class AutoPlayService:AccessibilityService(){
  private var dispatched=0
  private var detected=0
  private var frames=0
+ private var screenshotErrors=0
+ private var captureBackoffMs=0L
  override fun onServiceConnected(){super.onServiceConnected();instance=this;overlay=DebugOverlay(this)}
  override fun onAccessibilityEvent(event:AccessibilityEvent?)=Unit
  override fun onInterrupt(){stop()}
@@ -44,7 +46,7 @@ class AutoPlayService:AccessibilityService(){
   if(!::overlay.isInitialized)return
   start()
   playing=true
-  dispatched=0;detected=0;frames=0
+  dispatched=0;detected=0;frames=0;screenshotErrors=0;captureBackoffMs=0L
   overlay.updateStatus("AUTO TAP - EXPERIMENTAL")
   handler.post(::capture)
  }
@@ -91,13 +93,19 @@ class AutoPlayService:AccessibilityService(){
        try{if(bitmap!=null&&playing&&epoch==generation)process(bitmap,epoch)}
        finally{bitmap?.recycle()}
       }finally{buffer.close()}
-     }catch(e:Exception){overlay.updateStatus("PROCESS ERROR "+e.javaClass.simpleName)}finally{busy=false;next(epoch)}
+     }catch(e:Exception){overlay.updateStatus("PROCESS ERROR "+e.javaClass.simpleName)}finally{busy=false;captureBackoffMs=0L;next(epoch)}
     }
-    override fun onFailure(errorCode:Int){busy=false;overlay.updateStatus("SCREENSHOT ERROR "+errorCode);next(epoch)}
+    override fun onFailure(errorCode:Int){
+     busy=false
+     screenshotErrors++
+     captureBackoffMs=if(errorCode==3)500L else 250L
+     overlay.updateStatus("CAPTURE ERROR "+errorCode+" x"+screenshotErrors+" OK "+frames)
+     next(epoch)
+    }
    })
   }catch(e:Exception){busy=false;overlay.updateStatus("CAPTURE ERROR "+e.javaClass.simpleName);next(epoch)}
  }
- private fun next(epoch:Int){if(playing&&epoch==generation)handler.postDelayed(::capture,config.pollMs)}
+ private fun next(epoch:Int){if(playing&&epoch==generation)handler.postDelayed(::capture,maxOf(config.pollMs.toLong(),captureBackoffMs))}
  private fun process(bitmap:Bitmap,epoch:Int){
   val portrait=bitmap.height>bitmap.width
   val analyzed=if(portrait){
@@ -106,7 +114,7 @@ class AutoPlayService:AccessibilityService(){
   }else bitmap
   try{
    frames++
-   if(frames%20==0)overlay.updateStatus("FRAMES "+frames+" HITS "+detected+" TAPS "+dispatched)
+   if(frames%20==0)overlay.updateStatus("OK "+frames+" ERR "+screenshotErrors+" HITS "+detected+" TAPS "+dispatched)
    val hits=detector.detect(analyzed,SystemClock.uptimeMillis())
    detected+=hits.size
    if(hits.isNotEmpty()){
