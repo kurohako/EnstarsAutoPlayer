@@ -37,6 +37,14 @@ class ChartGesturePlayer(
  private var lateBatches=0
  private var maxDispatchLateMs=0L
  private var skippedForStrokeLimit=0
+ private var lastReportAt=0L
+ private fun report(force:Boolean=false){
+  val now=SystemClock.uptimeMillis()
+  if(force||now-lastReportAt>=220L){
+   lastReportAt=now
+   progress(summary())
+  }
+ }
  val total:Int=plan.batches.sumOf{it.notes.size}
  val first:PlayNote?=plan.batches.firstOrNull()?.notes?.firstOrNull()
  fun summary():Stats=Stats(submitted,completed,cancelled,rejected,plan.overflow+skippedForStrokeLimit,total,lateBatches,maxDispatchLateMs,error)
@@ -164,25 +172,25 @@ class ChartGesturePlayer(
     strokeCount+=strokes.size
     validNotes++
    }
-   if(strokeCount==0){progress(summary());return}
+   if(strokeCount==0){report(true);return}
    val gesture=builder.build()
    val accepted=service.dispatchGesture(gesture,object:AccessibilityService.GestureResultCallback(){
     override fun onCompleted(gestureDescription:GestureDescription?){
      if(stopped)return
-     completed++
-     progress(summary())
+     completed+=validNotes
+     report()
     }
     override fun onCancelled(gestureDescription:GestureDescription?){
      if(stopped)return
-     cancelled++
-     progress(summary())
+     cancelled+=validNotes
+     report(true)
     }
    },handler)
-   if(accepted)submitted+=validNotes else rejected++
+   if(accepted)submitted+=validNotes else rejected+=validNotes
   }catch(e:Exception){
-   rejected++
+   rejected+=batch.notes.size
    error=e.javaClass.simpleName+": "+(e.message?:"")
   }
-  progress(summary())
+  report(rejected>0)
  }
 }
