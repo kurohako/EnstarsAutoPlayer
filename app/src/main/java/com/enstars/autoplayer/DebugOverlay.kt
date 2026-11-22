@@ -34,12 +34,21 @@ class DebugOverlay(private val context: Context) {
   view.sourceH=sourceH
   view.invalidate()
  }
+ fun showFixed(config:GameConfig){
+  view.fixedXs=config.laneXs
+  view.fixedYs=config.laneYs
+  view.points=null
+  view.status="FIXED 9 POINTS - DEBUG"
+  view.invalidate()
+ }
  fun close(){
   if(attached)try{wm.removeView(view)}catch(_:Exception){}finally{attached=false}
  }
  private class OverlayView(context:Context):View(context){
   var points:List<JudgmentPointDetector.Point>?=null
-  var status="Scanning..."
+  var status="Fixed coordinates"
+  var fixedXs:List<Float>?=null
+  var fixedYs:List<Float>?=null
   var sourceW=1;var sourceH=1
   private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
   override fun onDraw(canvas:Canvas){
@@ -53,8 +62,13 @@ class DebugOverlay(private val context: Context) {
    canvas.drawText(status,17*density,34*density,paint)
    val sx=width.toFloat()/sourceW.coerceAtLeast(1)
    val sy=height.toFloat()/sourceH.coerceAtLeast(1)
-   points?.forEachIndexed{index,p->
-    val x=p.x*sx;val y=p.y*sy
+   val fixed=fixedXs?.zip(fixedYs ?: emptyList())?.map{(x,y)->
+    if(width>=height) Pair(x*width,y*height)
+    else Pair(y*width,(1f-x)*height)
+   }
+   val displayPoints=fixed ?: points?.map{Pair(it.x*sx,it.y*sy)} ?: emptyList()
+   displayPoints.forEachIndexed{index,p->
+    val x=p.first;val y=p.second
     paint.color=Color.GREEN
     paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density
     canvas.drawCircle(x,y,18*density,paint)
