@@ -115,7 +115,7 @@ class AutoPlayService:AccessibilityService(){
   chartActive=true
   dispatched=0;chartCompleted=0;chartCancelled=0;chartRejected=0
   val epoch=generation
-  val player=ChartGesturePlayer(this,handler,config,chart.events){stats->
+  val player=ChartGesturePlayer(this,handler,config,{overlay.touchViewport()},chart.events){stats->
    if(playing&&generation==epoch){
     dispatched=stats.submitted
     chartCompleted=stats.completed
@@ -128,14 +128,15 @@ class AutoPlayService:AccessibilityService(){
     }
     overlay.updateStatus("V3.6 "+stats.submitted+"/"+stats.total+
      " OK "+stats.completed+" CXL "+stats.cancelled+
-     " REJ "+stats.rejected+" SKIP "+stats.overflow)
+     " REJ "+stats.rejected+" SKIP "+stats.overflow+
+     " LATE "+stats.lateBatches)
    }
   }
   chartPlayer=player
   chartTotal=player.total
   overlay.showPlayerControls(onStart={startChartAutoplay(offsetMs)},onStop={stopFromOverlay()})
   diagState("SYNC_WAIT")
-  overlay.updateStatus("SYNC AT FIRST LANE "+((player.first?.lane?:0f)+1).toInt())
+  overlay.updateStatus("SYNC AT CALIBRATED LANE "+((player.first?.lane?:0f)+1).toInt())
   overlay.showSyncAtLane(player.first?.lane?:0f){fingerDownAt->
    if(!playing||generation!=epoch||chartPlayer!==player)return@showSyncAtLane
    diagState("PLAYING")
@@ -146,7 +147,7 @@ class AutoPlayService:AccessibilityService(){
      val s=player.summary()
      overlay.updateStatus("CHART "+s.submitted+"/"+s.total+
       " OK "+s.completed+" CXL "+s.cancelled+" REJ "+s.rejected+
-      " SKIP "+s.overflow)
+      " SKIP "+s.overflow+" LATE "+s.lateBatches)
      diagState("PLAYING")
      handler.postDelayed(this,1000L)
     }
