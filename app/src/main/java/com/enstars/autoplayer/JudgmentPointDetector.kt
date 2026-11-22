@@ -63,8 +63,9 @@ class JudgmentPointDetector {
    if(ratio !in .65f..1.55f)continue
    val fill=tail.toFloat()/(bw*bh)
    if(fill !in .27f..1.0f)continue
-   val cx=(sumX.toFloat()/tail)*stride
-   val cy=(sumY.toFloat()/tail)*stride
+   // Bounding-box midpoint is less biased than a pixel centroid when one side of a ring is brighter.
+   val cx=(minX+maxX)*.5f*stride
+   val cy=(minY+maxY)*.5f*stride
    val confidence=(1f-abs(1f-ratio)).coerceIn(0f,1f)*.45f+fill.coerceIn(0f,1f)*.55f
    found.add(Point(cx,cy,confidence))
   }
