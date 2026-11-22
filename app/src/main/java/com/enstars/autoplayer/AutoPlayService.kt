@@ -29,6 +29,7 @@ class AutoPlayService:AccessibilityService(){
  private var chartRejected=0
  private var chartTotal=0
  private var chartActive=false
+ private var chartPlayer:ChartGesturePlayer?=null
  private var screenshotErrors=0
  private var captureBackoffMs=0L
  private fun diagState(state:String){
@@ -105,106 +106,52 @@ class AutoPlayService:AccessibilityService(){
    return
   }
   val raw=getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)
-  if(raw.isNullOrBlank())return
-  val chart=try{ChartParser.parse(raw)}catch(_:Exception){return}
-  if(chart.taps.size<2)return
+  if(raw.isNullOrBlank()){overlay.updateStatus("NO CHART IMPORTED");return}
+  val chart=try{ChartParser.parse(raw)}
+   catch(e:Exception){overlay.updateStatus("CHART ERROR "+e.javaClass.simpleName);return}
+  if(chart.events.isEmpty()){overlay.updateStatus("CHART HAS NO PLAYABLE NOTES");return}
   start()
   playing=true
   chartActive=true
   dispatched=0;chartCompleted=0;chartCancelled=0;chartRejected=0
   val epoch=generation
-  val taps=chart.taps.sortedBy{it.timeMs}
-  chartTotal=taps.size
-  overlay.showPlayerControls(
-   onStart={startChartAutoplay(offsetMs)},
-   onStop={stopFromOverlay()}
-  )
-  diagState("SYNC_WAIT")
-  overlay.updateStatus("WAIT FIRST NOTE - SYNC")
-  overlay.showSyncButton{
-   if(!playing||generation!=epoch)return@showSyncButton
-   val syncAt=SystemClock.uptimeMillis()
-   diagState("PLAYING")
-   val first=taps.first().timeMs
-   // The SYNC button is not a gameplay touch. Trigger the first chart tap too.
-   val firstNote=taps.first()
-   val metrics=resources.displayMetrics
-   val portrait=metrics.heightPixels>metrics.widthPixels
-   val nx=config.laneXs[firstNote.lane];val ny=config.laneYs[firstNote.lane]
-   val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
-   val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
-   val firstPath=Path().apply{moveTo(x,y)}
-   val acceptedFirst=dispatchGesture(GestureDescription.Builder()
-     .addStroke(GestureDescription.StrokeDescription(firstPath,0,24)).build(),
-     object:GestureResultCallback(){
-      override fun onCompleted(gestureDescription:GestureDescription?){chartCompleted++}
-      override fun onCancelled(gestureDescription:GestureDescription?){chartCancelled++}
-     },null)
-   if(acceptedFirst)dispatched++ else chartRejected++
-   // Merge video detections in a narrow 18ms simultaneity window.
-   // This avoids cancelling a multi-touch gesture with another immediately.
-   val grouped=mutableListOf<Pair<Long,MutableList<ChartParser.Tap>>>()
-   for(note in taps.drop(1)){
-    val last=grouped.lastOrNull()
-    if(last!=null&&note.timeMs-last.first<=24L)last.second.add(note)
-    else grouped.add(note.timeMs to mutableListOf(note))
+  val player=ChartGesturePlayer(this,handler,config,chart.events){stats->
+   if(playing&&generation==epoch){
+    dispatched=stats.submitted
+    chartCompleted=stats.completed
+    chartCancelled=stats.cancelled
+    chartRejected=stats.rejected
+    chartTotal=stats.total
+    if(stats.error.isNotEmpty()){
+     getSharedPreferences("sessionDiagnostics",MODE_PRIVATE).edit()
+      .putString("lastDispatchError",stats.error).apply()
+    }
+    overlay.updateStatus("V3.6 "+stats.submitted+"/"+stats.total+
+     " OK "+stats.completed+" CXL "+stats.cancelled+
+     " REJ "+stats.rejected+" SKIP "+stats.overflow)
    }
-   overlay.updateStatus("CHART SYNCED / "+grouped.size+" EVENTS")
+  }
+  chartPlayer=player
+  chartTotal=player.total
+  overlay.showPlayerControls(onStart={startChartAutoplay(offsetMs)},onStop={stopFromOverlay()})
+  diagState("SYNC_WAIT")
+  overlay.updateStatus("SYNC AT FIRST LANE "+((player.first?.lane?:0f)+1).toInt())
+  overlay.showSyncAtLane(player.first?.lane?:0f){fingerDownAt->
+   if(!playing||generation!=epoch||chartPlayer!==player)return@showSyncAtLane
+   diagState("PLAYING")
+   player.sync(fingerDownAt,offsetMs)
    val dashboard=object:Runnable{
     override fun run(){
-     if(!playing||generation!=epoch||!chartActive)return
-     overlay.updateStatus("CHART "+dispatched+"/"+chartTotal+
-      " OK "+chartCompleted+" CXL "+chartCancelled+" REJ "+chartRejected)
+     if(!playing||generation!=epoch||chartPlayer!==player)return
+     val s=player.summary()
+     overlay.updateStatus("CHART "+s.submitted+"/"+s.total+
+      " OK "+s.completed+" CXL "+s.cancelled+" REJ "+s.rejected+
+      " SKIP "+s.overflow)
      diagState("PLAYING")
      handler.postDelayed(this,1000L)
     }
    }
    handler.postDelayed(dashboard,1000L)
-   for((time,notes) in grouped){
-    val whenMs=syncAt+(time-first)+offsetMs
-    if(whenMs<syncAt)continue
-    handler.postAtTime({
-     if(playing&&generation==epoch){
-      try{
-       val metrics=resources.displayMetrics
-       val portrait=metrics.heightPixels>metrics.widthPixels
-       // Never exceed the platform's gesture stroke limit.
-       // Repeated detections from one lane inside the 24ms window are not
-       // separate fingers; merge them into one touch.
-       val uniqueNotes=notes.filter{it.lane in 0..8}.distinctBy{it.lane}
-       if(uniqueNotes.isNotEmpty()){
-        val builder=GestureDescription.Builder()
-        for(note in uniqueNotes){
-         val nx=config.laneXs[note.lane];val ny=config.laneYs[note.lane]
-         val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
-         val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
-         val path=Path().apply{moveTo(x,y)}
-         builder.addStroke(GestureDescription.StrokeDescription(path,0,24))
-        }
-        val accepted=dispatchGesture(builder.build(),object:GestureResultCallback(){
-         override fun onCompleted(gestureDescription:GestureDescription?){
-          if(playing&&generation==epoch)chartCompleted++
-         }
-         override fun onCancelled(gestureDescription:GestureDescription?){
-          if(playing&&generation==epoch)chartCancelled++
-         }
-        },null)
-        if(accepted)dispatched+=uniqueNotes.size else chartRejected++
-        if(dispatched%10<uniqueNotes.size||chartRejected>0){
-         overlay.updateStatus("TAPS "+dispatched+"/"+chartTotal+
-          " DONE "+chartCompleted+" CXL "+chartCancelled+" REJ "+chartRejected)
-        }
-       }
-      }catch(e:Exception){
-       chartRejected++
-       getSharedPreferences("sessionDiagnostics",MODE_PRIVATE).edit()
-        .putString("lastDispatchError",e.javaClass.simpleName+": "+(e.message?:""))
-        .putLong("lastDispatchErrorAt",System.currentTimeMillis()).apply()
-       overlay.updateStatus("GESTURE ERROR "+e.javaClass.simpleName)
-      }
-     }
-    },whenMs)
-   }
   }
  }
  fun testTap(){
@@ -229,6 +176,7 @@ class AutoPlayService:AccessibilityService(){
   overlay.updateStatus("TEST TAP IN 5 SEC - OPEN GAME")
  }
  private fun stopPlayback(){
+  chartPlayer?.stop();chartPlayer=null
   playing=false;chartActive=false;generation++
   handler.removeCallbacksAndMessages(null)
   busy=false
