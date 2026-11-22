@@ -44,6 +44,7 @@ class DebugOverlay(private val context:Context){
   view.xs=config.laneXs.toMutableList()
   view.ys=config.laneYs.toMutableList()
   view.status="FIXED 9 POINTS"
+  view.showTargets=true
   view.invalidate()
  }
  fun edit(config:GameConfig,save:()->Unit){
@@ -141,6 +142,8 @@ class DebugOverlay(private val context:Context){
  }
  fun showPlayerControls(onStart:()->Unit,onStop:()->Unit){
   show()
+  view.showTargets=false
+  view.invalidate()
   clearPlayerControls()
   val items=listOf("START" to onStart,"STOP" to onStop)
   for((index,item) in items.withIndex()){
@@ -163,6 +166,8 @@ class DebugOverlay(private val context:Context){
  }
  fun showSyncButton(onSync:()->Unit){
   show()
+  view.showTargets=false
+  view.invalidate()
   syncButton?.let{wm.removeView(it)}
   val button=TextView(context).apply{
    text="SYNC FIRST NOTE"
@@ -192,6 +197,7 @@ class DebugOverlay(private val context:Context){
   var xs=GameConfig().laneXs.toMutableList()
   var ys=GameConfig().laneYs.toMutableList()
   var status="FIXED"
+  var showTargets=true
   private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
   fun screenPoint(i:Int):Pair<Float,Float> =
    if(width>=height)Pair(xs[i]*width,ys[i]*height)
@@ -212,7 +218,7 @@ class DebugOverlay(private val context:Context){
    paint.color=Color.WHITE
    paint.textSize=13*density
    canvas.drawText(status,12*density,29*density,paint)
-   for(i in 0..8){
+   if(showTargets)for(i in 0..8){
     val (x,y)=screenPoint(i)
     paint.color=if(editing)Color.YELLOW else Color.GREEN
     paint.style=Paint.Style.STROKE
