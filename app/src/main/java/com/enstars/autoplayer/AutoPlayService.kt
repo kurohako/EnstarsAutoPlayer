@@ -31,10 +31,40 @@ class AutoPlayService:AccessibilityService(){
  private var chartActive=false
  private var screenshotErrors=0
  private var captureBackoffMs=0L
- override fun onServiceConnected(){super.onServiceConnected();instance=this;overlay=DebugOverlay(this)}
+ private fun diagState(state:String){
+  getSharedPreferences("sessionDiagnostics",MODE_PRIVATE).edit()
+   .putString("state",state)
+   .putLong("heartbeatAt",System.currentTimeMillis())
+   .putInt("taps",dispatched)
+   .putInt("completed",chartCompleted)
+   .putInt("cancelled",chartCancelled)
+   .putInt("rejected",chartRejected).apply()
+ }
+ private fun endSession(reason:String){
+  val prefs=getSharedPreferences("sessionDiagnostics",MODE_PRIVATE)
+  val active=prefs.getString("state","IDLE") in listOf("PLAYING","SYNC_WAIT","LIVE_DETECT")
+  if(active){
+   prefs.edit().putString("lastEndReason",reason)
+    .putLong("lastEndAt",System.currentTimeMillis()).apply()
+  }
+  stopPlayback()
+  diagState("STOPPED")
+  if(::overlay.isInitialized)overlay.close()
+ }
+ override fun onServiceConnected(){
+  super.onServiceConnected()
+  instance=this
+  overlay=DebugOverlay(this)
+  val prefs=getSharedPreferences("sessionDiagnostics",MODE_PRIVATE)
+  if(prefs.getString("state","IDLE") in listOf("PLAYING","SYNC_WAIT","LIVE_DETECT")){
+   prefs.edit().putString("lastEndReason","SERVICE_RESTARTED_UNEXPECTEDLY")
+    .putLong("lastEndAt",System.currentTimeMillis()).apply()
+  }
+  diagState("READY")
+ }
  override fun onAccessibilityEvent(event:AccessibilityEvent?)=Unit
- override fun onInterrupt(){stop()}
- override fun onDestroy(){stop();instance=null;super.onDestroy()}
+ override fun onInterrupt(){endSession("ACCESSIBILITY_INTERRUPTED")}
+ override fun onDestroy(){endSession("SERVICE_DESTROYED");instance=null;super.onDestroy()}
  fun start(){
   stopPlayback()
   config=GameConfig.load(this);detector=NoteDetector(config)
@@ -53,6 +83,7 @@ class AutoPlayService:AccessibilityService(){
   playing=true
   dispatched=0;detected=0;frames=0;screenshotErrors=0;captureBackoffMs=0L
   overlay.updateStatus("AUTO TAP - EXPERIMENTAL")
+  diagState("LIVE_DETECT")
   handler.post(::capture)
  }
  fun showFloatingControls(){
@@ -63,12 +94,16 @@ class AutoPlayService:AccessibilityService(){
     val offset=getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L)
     startChartAutoplay(offset)
    },
-   onStop={stop()}
+   onStop={stopFromOverlay()}
   )
   overlay.updateStatus("FLOATING CONTROL READY")
  }
  fun startChartAutoplay(offsetMs:Long){
   if(!::overlay.isInitialized)return
+  if(playing&&chartActive){
+   overlay.updateStatus("CHART ALREADY ACTIVE")
+   return
+  }
   val raw=getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)
   if(raw.isNullOrBlank())return
   val chart=try{ChartParser.parse(raw)}catch(_:Exception){return}
@@ -82,12 +117,14 @@ class AutoPlayService:AccessibilityService(){
   chartTotal=taps.size
   overlay.showPlayerControls(
    onStart={startChartAutoplay(offsetMs)},
-   onStop={stop()}
+   onStop={stopFromOverlay()}
   )
+  diagState("SYNC_WAIT")
   overlay.updateStatus("WAIT FIRST NOTE - SYNC")
   overlay.showSyncButton{
    if(!playing||generation!=epoch)return@showSyncButton
    val syncAt=SystemClock.uptimeMillis()
+   diagState("PLAYING")
    val first=taps.first().timeMs
    // The SYNC button is not a gameplay touch. Trigger the first chart tap too.
    val firstNote=taps.first()
@@ -118,6 +155,7 @@ class AutoPlayService:AccessibilityService(){
      if(!playing||generation!=epoch||!chartActive)return
      overlay.updateStatus("CHART "+dispatched+"/"+chartTotal+
       " OK "+chartCompleted+" CXL "+chartCancelled+" REJ "+chartRejected)
+     diagState("PLAYING")
      handler.postDelayed(this,1000L)
     }
    }
@@ -184,7 +222,8 @@ class AutoPlayService:AccessibilityService(){
   busy=false
  }
  fun hideWhenIdle(){if(!playing&&::overlay.isInitialized)overlay.close()}
- fun stop(){stopPlayback();if(::overlay.isInitialized)overlay.close()}
+ fun stopFromOverlay(){endSession("LONG_PRESS_STOP")}
+ fun stop(){endSession("STOP_FROM_APP")}
  private fun capture(){
   if(!playing)return
   if(busy){handler.postDelayed(::capture,80L);return}
