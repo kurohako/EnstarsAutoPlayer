@@ -61,6 +61,8 @@ jobs:
           if-no-files-found: error
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
+      - name: Test V3.6 chart parsing and gesture planning
+        run: gradle --no-daemon :app:testDebugUnitTest
       - uses: actions/upload-artifact@v4
         with:
           name: EnstarsAutoPlayer-debug-apk
