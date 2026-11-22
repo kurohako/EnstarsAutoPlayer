@@ -24,6 +24,7 @@ class DebugOverlay(private val context:Context){
  private var onSave:(()->Unit)?=null
  private val handles=mutableListOf<View>()
  private var saveButton:TextView?=null
+ private var syncButton:TextView?=null
  private val density=context.resources.displayMetrics.density
  private val handleSize=(54*density).roundToInt()
  private val windowFlags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -137,10 +138,30 @@ class DebugOverlay(private val context:Context){
   view.invalidate()
   onSave?.invoke()
  }
+ fun showSyncButton(onSync:()->Unit){
+  show()
+  syncButton?.let{wm.removeView(it)}
+  val button=TextView(context).apply{
+   text="SYNC FIRST NOTE"
+   textSize=13f
+   gravity=Gravity.CENTER
+   setTextColor(Color.WHITE)
+   setBackgroundColor(0xDD176B88.toInt())
+   setOnClickListener{
+    syncButton?.let{wm.removeView(it)}
+    syncButton=null
+    onSync()
+   }
+  }
+  syncButton=button
+  wm.addView(button,params((155*density).roundToInt(),(48*density).roundToInt(),
+   (12*density).roundToInt(),(60*density).roundToInt(),true))
+ }
  fun updateStatus(status:String){view.status=status;view.invalidate()}
  fun close(){
   editing=false
   removeControls()
+  syncButton?.let{wm.removeView(it)};syncButton=null
   if(attached){wm.removeView(view);attached=false}
  }
  private inner class OverlayView(context:Context):View(context){
