@@ -63,7 +63,23 @@ class MainActivity:Activity(){
     chartInfo.text="Saved: "+chart.difficulty+" | TAP "+chart.taps.size+" | skipped "+chart.skipped
    }catch(_:Exception){}
   }
-  label("Chart import is preview-only. Song synchronization is needed before scheduled taps.")
+  label("Chart TAP beta: switch to game, tap SYNC FIRST NOTE exactly when first note reaches judgment line. Other note types are skipped.")
+  val syncOffset=EditText(this).apply{
+   inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+   setText(getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L).toString())
+   hint="Timing offset ms (default 0)"
+  }
+  root.addView(syncOffset)
+  button("START CHART TAP (SYNC FIRST NOTE)"){
+   val offset=syncOffset.text.toString().toLongOrNull()
+   if(offset==null||offset !in -500L..500L){
+    Toast.makeText(this,"Offset must be -500..500 ms",Toast.LENGTH_SHORT).show()
+   }else{
+    getSharedPreferences("chart",MODE_PRIVATE).edit().putLong("syncOffset",offset).apply()
+    service()?.startChartAutoplay(offset)
+    Toast.makeText(this,"Switch to game and sync on first note",Toast.LENGTH_LONG).show()
+   }
+  }
 
   label("1. Open the game Live screen. Return here and choose Edit 9 points. Drag each yellow crosshair to its judgment circle. Tap SAVE in the upper right.")
   button("Open Accessibility Settings"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
