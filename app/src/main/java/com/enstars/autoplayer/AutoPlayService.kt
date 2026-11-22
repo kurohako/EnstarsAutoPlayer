@@ -97,6 +97,7 @@ class AutoPlayService:AccessibilityService() {
      kotlin.math.hypot(a.x-b.x,a.y-b.y)<bitmap.width.coerceAtLeast(bitmap.height)*.025f
     }
     calibrationCount=if(stable)calibrationCount+1 else 1
+    val frameDrift=prior?.zip(points)?.map{(a,b)->kotlin.math.hypot(a.x-b.x,a.y-b.y)}?.maxOrNull() ?: 0f
     previousPoints=points
     if(calibrationCount>=2){
      lockedPoints=points.toList()
@@ -104,9 +105,7 @@ class AutoPlayService:AccessibilityService() {
      config=config.copy(laneXs=points.map{it.x/bitmap.width},laneYs=points.map{it.y/bitmap.height})
      val elapsed=(SystemClock.uptimeMillis()-lockStartedAt).coerceAtLeast(0L)
      val fromStart=(SystemClock.uptimeMillis()-calibrationRequestedAt).coerceAtLeast(0L)
-     val drift=previousPoints?.zip(points)?.map{(a,b)->
-      kotlin.math.hypot(a.x-b.x,a.y-b.y)
-     }?.maxOrNull() ?: 0f
+     val drift=frameDrift
      getSharedPreferences("calibration",MODE_PRIVATE).edit()
       .putLong("lock_ms",elapsed)
       .putLong("request_to_lock_ms",fromStart)
