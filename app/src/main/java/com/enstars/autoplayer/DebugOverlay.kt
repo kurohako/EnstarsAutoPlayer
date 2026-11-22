@@ -201,9 +201,7 @@ class DebugOverlay(private val context:Context){
   view.showTargets=false
   view.invalidate()
   syncLane=lane.coerceIn(0f,8f)
-  var downAt=0L
-  var downX=0f
-  var downY=0f
+  var triggered=false
   val button=TextView(context).apply{
    text="SYNC"
    textSize=11f
@@ -217,22 +215,22 @@ class DebugOverlay(private val context:Context){
    setOnTouchListener{_,e->
     when(e.actionMasked){
      MotionEvent.ACTION_DOWN->{
-      downAt=SystemClock.uptimeMillis()
-      downX=e.rawX;downY=e.rawY
-      true
-     }
-     MotionEvent.ACTION_UP->{
-      val pressed=SystemClock.uptimeMillis()-downAt
-      val moved=kotlin.math.hypot(e.rawX-downX,e.rawY-downY)
-      if(downAt>0 && pressed in 15L..700L && moved<28*density){
-       val origin=downAt
-       downAt=0L
-       clearSyncTarget()
-       onSync(origin)
+      if(!triggered){
+       triggered=true
+       val fingerDownAt=SystemClock.uptimeMillis()
+       // Remove overlay before dispatching an injected gesture. We deliberately
+       // do NOT wait for ACTION_UP: that added a full finger-press duration to
+       // the first note while the game never saw the original touch.
+       post {
+        if(syncButton===this){
+         clearSyncTarget()
+         onSync(fingerDownAt)
+        }
+       }
       }
       true
      }
-     MotionEvent.ACTION_CANCEL->{downAt=0L;true}
+     MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->true
      else->true
     }
    }
@@ -243,6 +241,15 @@ class DebugOverlay(private val context:Context){
   wm.addView(button,params(size,size,(x-size/2).roundToInt(),(y-size/2).roundToInt(),true))
   view.post{placeSyncTarget()}
  }
+ /** Use precisely the same overlay dimensions for SYNC and injected gestures.
+  * DisplayMetrics can exclude an inset or contain stale orientation dimensions.
+  */
+ fun touchViewport():Pair<Int,Int>{
+  val w=view.width.takeIf{it>0}?:context.resources.displayMetrics.widthPixels
+  val h=view.height.takeIf{it>0}?:context.resources.displayMetrics.heightPixels
+  return Pair(w,h)
+ }
+ fun syncTargetCenter(lane:Float):Pair<Float,Float> = view.screenPointLane(lane)
  fun updateStatus(status:String){view.status=status;view.invalidate()}
  fun close(){
   editing=false
