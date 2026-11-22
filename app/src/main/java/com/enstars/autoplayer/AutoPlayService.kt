@@ -50,6 +50,48 @@ class AutoPlayService:AccessibilityService(){
   overlay.updateStatus("AUTO TAP - EXPERIMENTAL")
   handler.post(::capture)
  }
+ fun startChartAutoplay(offsetMs:Long){
+  if(!::overlay.isInitialized)return
+  val raw=getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)
+  if(raw.isNullOrBlank())return
+  val chart=try{ChartParser.parse(raw)}catch(_:Exception){return}
+  if(chart.taps.size<2)return
+  start()
+  playing=true
+  val epoch=generation
+  val taps=chart.taps.sortedBy{it.timeMs}
+  overlay.updateStatus("WAIT FIRST NOTE - SYNC")
+  overlay.showSyncButton{
+   if(!playing||generation!=epoch)return@showSyncButton
+   val syncAt=SystemClock.uptimeMillis()
+   val first=taps.first().timeMs
+   val grouped=taps.drop(1).groupBy{it.timeMs}.toSortedMap()
+   overlay.updateStatus("CHART SYNCED / "+grouped.size+" EVENTS")
+   for((time,notes) in grouped){
+    val whenMs=syncAt+(time-first)+offsetMs
+    if(whenMs<syncAt)continue
+    handler.postAtTime({
+     if(playing&&generation==epoch){
+      val metrics=resources.displayMetrics
+      val portrait=metrics.heightPixels>metrics.widthPixels
+      val builder=GestureDescription.Builder()
+      for(note in notes){
+       if(note.lane !in 0..8)continue
+       val nx=config.laneXs[note.lane];val ny=config.laneYs[note.lane]
+       val x=if(portrait)ny*metrics.widthPixels else nx*metrics.widthPixels
+       val y=if(portrait)(1f-nx)*metrics.heightPixels else ny*metrics.heightPixels
+       val path=Path().apply{moveTo(x,y)}
+       builder.addStroke(GestureDescription.StrokeDescription(path,0,40))
+      }
+      if(dispatchGesture(builder.build(),null,null)){
+       dispatched+=notes.size
+       if(dispatched%10==0)overlay.updateStatus("CHART TAPS "+dispatched)
+      }
+     }
+    },whenMs)
+   }
+  }
+ }
  fun testTap(){
   stopPlayback()
   config=GameConfig.load(this)
