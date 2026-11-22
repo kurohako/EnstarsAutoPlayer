@@ -19,6 +19,10 @@ class AutoPlayService:AccessibilityService() {
  private val pointDetector=JudgmentPointDetector()
  private lateinit var overlay:DebugOverlay
  private var calibrated=false
+ private var lockedPoints:List<JudgmentPointDetector.Point>?=null
+ private var lockStartedAt=0L
+ private var lastFrameWidth=1
+ private var lastFrameHeight=1
  private var calibrationCount=0
  private var previousPoints:List<JudgmentPointDetector.Point>?=null
  private var lastTap=LongArray(0)
@@ -29,12 +33,25 @@ class AutoPlayService:AccessibilityService() {
  override fun onDestroy(){stop();instance=null;super.onDestroy()}
  fun start(){
   if(running)return
+  resetCalibration()
   config=GameConfig.load(this);detector=NoteDetector(config)
-  lastTap=LongArray(config.laneXs.size);calibrated=false;calibrationCount=0;previousPoints=null;running=true;overlay.show();handler.post(::capture)
+  lastTap=LongArray(config.laneXs.size);running=true;overlay.show();overlay.update(null,"WAITING FOR LIVE...",1,1);handler.post(::capture)
  }
  fun stop(){running=false;handler.removeCallbacksAndMessages(null);pending.clear();if(::overlay.isInitialized)overlay.close()}
+ private fun resetCalibration(){
+  calibrated=false;lockedPoints=null;calibrationCount=0;previousPoints=null;lockStartedAt=0L
+ }
+ fun restartCalibration(){
+  resetCalibration()
+  if(!running)start()
+  else{
+   handler.removeCallbacksAndMessages(null)
+   overlay.update(null,"WAITING FOR LIVE...",lastFrameWidth,lastFrameHeight)
+   if(!busy)handler.post(::capture)
+  }
+ }
  private fun capture(){
-  if(!running)return
+  if(!running||calibrated)return
   if(busy){schedule();return}
   busy=true
   try {
@@ -54,8 +71,10 @@ class AutoPlayService:AccessibilityService() {
   }catch(_:Exception){busy=false;schedule()}
  }
  private fun process(bitmap:Bitmap){
-  // V2 diagnostic mode: recognition only, no touch gestures.
+  // V2.3 one-shot calibration only; no gestures. Never scan after lock.
   // Portrait captures are rotated for arc detection and then mapped back.
+  if(calibrated)return
+  lastFrameWidth=bitmap.width;lastFrameHeight=bitmap.height
   val portrait=bitmap.height>bitmap.width
   val analyzed=if(portrait){
    val m=Matrix().apply{postRotate(90f)}
@@ -68,25 +87,33 @@ class AutoPlayService:AccessibilityService() {
     else p
    }
    if(points!=null&&points.size==9){
+    val now=SystemClock.uptimeMillis()
+    if(lockStartedAt==0L)lockStartedAt=now
     val prior=previousPoints
     val stable=prior!=null&&prior.zip(points).all{(a,b)->
      kotlin.math.hypot(a.x-b.x,a.y-b.y)<bitmap.width.coerceAtLeast(bitmap.height)*.025f
     }
     calibrationCount=if(stable)calibrationCount+1 else 1
     previousPoints=points
-    calibrated=calibrationCount>=3
+    if(calibrationCount>=2){
+     lockedPoints=points.toList()
+     calibrated=true
+     config=config.copy(laneXs=points.map{it.x/bitmap.width},laneYs=points.map{it.y/bitmap.height})
+     overlay.update(lockedPoints,"9/9 LOCKED - ONE SHOT",bitmap.width,bitmap.height)
+     return
+    }
    }else{
     calibrationCount=0
-    calibrated=false
     previousPoints=null
+    lockStartedAt=0L
    }
+   val elapsed=if(lockStartedAt==0L)0L else SystemClock.uptimeMillis()-lockStartedAt
    val status=when{
-    calibrated->"9/9 LOCKED - DEBUG ONLY"
-    points!=null->"9/9 found - stabilizing $calibrationCount/3"
-    else->"Candidates: ${detection.detected} / 9 scanning"
+    points!=null->"9/9 VERIFYING ${elapsed}ms"
+    else->"WAITING FOR 9 POINTS (${detection.detected})"
    }
    overlay.update(points,status,bitmap.width,bitmap.height)
   }finally{if(analyzed!==bitmap)analyzed.recycle()}
  }
- private fun schedule(){if(running)handler.postDelayed(::capture,config.pollMs)}
+ private fun schedule(){if(running&&!calibrated)handler.postDelayed(::capture,80L)}
 }
