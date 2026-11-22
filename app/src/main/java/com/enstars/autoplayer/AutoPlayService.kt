@@ -59,7 +59,7 @@ class AutoPlayService:AccessibilityService() {
     val gesture=GestureDescription.Builder()
     group.forEach { hit ->
      val path=Path().apply {
-      moveTo(config.laneXs[hit.lane]*bitmap.width,config.hitY*bitmap.height)
+      moveTo(config.laneXs[hit.lane]*bitmap.width,config.laneYs[hit.lane]*bitmap.height)
      }
      gesture.addStroke(GestureDescription.StrokeDescription(path,0,45))
     }
