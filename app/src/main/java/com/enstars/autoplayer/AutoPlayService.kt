@@ -62,8 +62,8 @@ class AutoPlayService:AccessibilityService() {
    Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,m,true)
   }else bitmap
   try{
-   val detected=pointDetector.locate(analyzed)
-   val points=detected?.map { p ->
+   val detection=pointDetector.locate(analyzed)
+   val points=detection.points?.map { p ->
     if(portrait) JudgmentPointDetector.Point(p.y,bitmap.height-p.x,p.confidence)
     else p
    }
@@ -83,7 +83,7 @@ class AutoPlayService:AccessibilityService() {
    val status=when{
     calibrated->"9/9 LOCKED - DEBUG ONLY"
     points!=null->"9/9 found - stabilizing $calibrationCount/3"
-    else->"0/9 - scanning..."
+    else->"Candidates: ${detection.detected} / 9 scanning"
    }
    overlay.update(points,status,bitmap.width,bitmap.height)
   }finally{if(analyzed!==bitmap)analyzed.recycle()}
