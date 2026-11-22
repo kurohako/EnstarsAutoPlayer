@@ -41,6 +41,7 @@ class MainActivity:Activity(){
   }
   button("Reload saved positions"){service()?.start()}
   label("2. Experimental Tap-only autoplay. Unsupported: hold, slide, flick, simultaneous gestures. Test in a non-competitive setting.")
+  button("Test one tap at point 5"){service()?.testTap()}
   button("Start experimental TAP autoplay"){service()?.startAutoplay()}
   button("STOP autoplay and hide overlay"){service()?.stop()}
   val p=getSharedPreferences("game",MODE_PRIVATE)
