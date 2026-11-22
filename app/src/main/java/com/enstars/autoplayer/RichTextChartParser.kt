@@ -5,7 +5,7 @@ object RichTextChartParser {
  private data class Section(val offset:Double,val beats:Int,val bpm:Double)
  private val sectionPattern=Regex("""^(\d+)#([\d.]+):(\d+):([\d.]+)$""")
  // e.g 1:5_0+0/4, :5_0+0/4, _2+1/4, +2/4, 12.500
- private val timePattern=Regex("""^(?:(\d+):|:)?(?:(\d+)_|_(\d+))?(?:\+(\d+)/(\d+)|\.(\d+))?$""")
+ private val timePattern=Regex("""^(?:(\d+):|:)?(?:(\d+)_|_(\d+))?(\d+)?(?:\+(\d+)/(\d+)|\.(\d+))?$""")
  private val headPattern=Regex("""@([OSLRUD])(-?\d+(?:\.5)?)(?:G\d+)?""")
  private val tailPattern=Regex("""@([OSLRUD]?)(-?\d+(?:\.5)?)(?:G\d+)?""")
  fun parse(input:String):ChartParser.Chart {
@@ -23,10 +23,10 @@ object RichTextChartParser {
     return currentMs
    }
    val m=timePattern.matchEntire(text)?:return null
-   val (sec,b,bt,numer,denom,dec)=m.destructured
+   val (sec,b,bt,directBeat,numer,denom,dec)=m.destructured
    if(sec.isNotBlank()){secNo=sec.toInt();bar=0;beat=0;fraction=0.0}
    if(b.isNotBlank()){bar=b.toInt();beat=0;fraction=0.0}
-   if(bt.isNotBlank()){beat=bt.toInt();fraction=0.0}
+   if(bt.isNotBlank()){beat=bt.toInt();fraction=0.0}\n   if(directBeat.isNotBlank()){beat=directBeat.toInt();fraction=0.0}
    if(numer.isNotBlank()){
     val den=denom.toDoubleOrNull()?:return null
     if(den==0.0)return null
