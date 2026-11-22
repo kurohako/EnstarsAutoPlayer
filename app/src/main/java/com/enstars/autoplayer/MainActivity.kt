@@ -49,7 +49,25 @@ class MainActivity:Activity(){
    return s
   }
 
-  label("Enstars AutoPlayer V3.1 - Video chart importer")
+  label("Enstars AutoPlayer V3.3 - Stop protection")
+  val sessionText=TextView(this).apply{textSize=14f}
+  root.addView(sessionText)
+  fun refreshSessionInfo(){
+   val p=getSharedPreferences("sessionDiagnostics",MODE_PRIVATE)
+   val reason=p.getString("lastEndReason","No recorded stop")
+   val state=p.getString("state","UNKNOWN")
+   val taps=p.getInt("taps",0)
+   val completed=p.getInt("completed",0)
+   val cancelled=p.getInt("cancelled",0)
+   val rejected=p.getInt("rejected",0)
+   val last=p.getLong("heartbeatAt",0L)
+   val age=if(last>0)(System.currentTimeMillis()-last)/1000 else -1L
+   sessionText.text="Session: "+state+" / last stop: "+reason+
+    " / heartbeat age: "+age+"s / taps "+taps+
+    " done "+completed+" cancelled "+cancelled+" rejected "+rejected
+  }
+  button("SHOW LAST STOP REASON"){refreshSessionInfo()}
+  refreshSessionInfo()
   chartInfo=TextView(this).apply{text="No chart imported yet";textSize=15f}
   root.addView(chartInfo)
   button("USE BUNDLED VIDEO CHART (508 TAP candidates)"){
