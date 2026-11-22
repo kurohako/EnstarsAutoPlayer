@@ -145,7 +145,7 @@ class DebugOverlay(private val context:Context){
   view.showTargets=false
   view.invalidate()
   clearPlayerControls()
-  val items=listOf("START" to onStart,"STOP" to onStop)
+  val items=listOf("START" to onStart,"HOLD STOP" to onStop)
   for((index,item) in items.withIndex()){
    val button=TextView(context).apply{
     text=item.first
@@ -153,10 +153,17 @@ class DebugOverlay(private val context:Context){
     gravity=Gravity.CENTER
     setTextColor(Color.WHITE)
     setBackgroundColor(if(index==0)0xDD187C35.toInt() else 0xDDB32626.toInt())
-    setOnClickListener{item.second.invoke()}
+    if(index==0){
+     setOnClickListener{item.second.invoke()}
+    }else{
+     // An injected chart tap lasts ~24ms and must NEVER stop playback.
+     // Physical long press is required to stop.
+     isLongClickable=true
+     setOnLongClickListener{item.second.invoke();true}
+    }
    }
    floatingButtons.add(button)
-   wm.addView(button,params((78*density).roundToInt(),(42*density).roundToInt(),
+   wm.addView(button,params(((if(index==0)78 else 105)*density).roundToInt(),(42*density).roundToInt(),
     (12*density).roundToInt(),((115+index*48)*density).roundToInt(),true))
   }
  }
