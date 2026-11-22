@@ -18,12 +18,13 @@ class ChartGesturePlayer(
  private val service:AccessibilityService,
  private val handler:Handler,
  private val config:GameConfig,
+ private val viewport:()->Pair<Int,Int>,
  chartEvents:List<PlayNote>,
  private val progress:(Stats)->Unit
 ) {
  data class Stats(
   val submitted:Int,val completed:Int,val cancelled:Int,val rejected:Int,
-  val overflow:Int,val total:Int,val error:String=""
+  val overflow:Int,val total:Int,val lateBatches:Int=0,val maxDispatchLateMs:Long=0L,val error:String=""
  )
  private val plan=GestureBatcher.plan(chartEvents)
  private val runnables=mutableListOf<Runnable>()
@@ -33,10 +34,12 @@ class ChartGesturePlayer(
  private var cancelled=0
  private var rejected=0
  private var error=""
+ private var lateBatches=0
+ private var maxDispatchLateMs=0L
  private var skippedForStrokeLimit=0
  val total:Int=plan.batches.sumOf{it.notes.size}
  val first:PlayNote?=plan.batches.firstOrNull()?.notes?.firstOrNull()
- fun summary():Stats=Stats(submitted,completed,cancelled,rejected,plan.overflow+skippedForStrokeLimit,total,error)
+ fun summary():Stats=Stats(submitted,completed,cancelled,rejected,plan.overflow+skippedForStrokeLimit,total,lateBatches,maxDispatchLateMs,error)
  fun stop(){
   stopped=true
   runnables.forEach{handler.removeCallbacks(it)}
@@ -45,9 +48,14 @@ class ChartGesturePlayer(
  fun sync(anchorUptimeMs:Long,timingOffsetMs:Long){
   if(stopped||plan.batches.isEmpty())return
   val base=anchorUptimeMs-plan.batches.first().startMs+timingOffsetMs
-  plan.batches.forEach{batch->
-   val due=base+batch.startMs
-   val task=Runnable{if(!stopped)send(batch)}
+  plan.batches.forEachIndexed{index,batch->
+   val targetAt=base+batch.startMs
+   // For subsequent gestures, issue the call slightly before target time
+   // and hold their strokes until the target. This absorbs Binder/UI delay
+   // without dispatching early while the previous batch is still playing.
+   val lead=if(index==0)0L else 22L
+   val due=targetAt-lead
+   val task=Runnable{if(!stopped)send(batch,targetAt)}
    runnables.add(task)
    if(due<=SystemClock.uptimeMillis())handler.post(task)
    else handler.postAtTime(task,due)
@@ -74,8 +82,8 @@ class ChartGesturePlayer(
   return if(w>=h)Pair((x+dx).coerceIn(1f,w-2f),(y+dy).coerceIn(1f,h-2f))
    else Pair((x+dy).coerceIn(1f,w-2f),(y-dx).coerceIn(1f,h-2f))
  }
- private fun makeStrokes(note:PlayNote,startMs:Long,w:Int,h:Int):List<GestureDescription.StrokeDescription>{
-  val startDelay=(note.timeMs-startMs).coerceAtLeast(0L)
+ private fun makeStrokes(note:PlayNote,startMs:Long,leadMs:Long,w:Int,h:Int):List<GestureDescription.StrokeDescription>{
+  val startDelay=(note.timeMs-startMs+leadMs).coerceAtLeast(0L)
   val (startX,startY)=screenCoords(note.lane,w,h)
   val result=mutableListOf<GestureDescription.StrokeDescription>()
   fun simplePath(x:Float,y:Float,endX:Float?=null,endY:Float?=null)=Path().apply{
@@ -118,7 +126,7 @@ class ChartGesturePlayer(
    val (px,py)=screenCoords(from.lane,w,h)
    val (qx,qy)=screenCoords(to.lane,w,h)
    val duration=(to.timeMs-from.timeMs).coerceAtLeast(1L)
-   val delay=(from.timeMs-startMs).coerceAtLeast(0L)
+   val delay=(from.timeMs-startMs+leadMs).coerceAtLeast(0L)
    val path=simplePath(px,py,qx,qy)
    val keep=i<points.lastIndex||note.releaseKind!=null
    val next=if(last==null)GestureDescription.StrokeDescription(path,delay,duration,keep)
@@ -131,20 +139,23 @@ class ChartGesturePlayer(
    val (px,py)=screenCoords(tail.lane,w,h)
    val (qx,qy)=shifted(px,py,note.releaseKind,w,h)
    result.add(last.continueStroke(simplePath(px,py,qx,qy),
-    (tail.timeMs-startMs).coerceAtLeast(0L),70L,false))
+    (tail.timeMs-startMs+leadMs).coerceAtLeast(0L),70L,false))
   }
   return result
  }
- private fun send(batch:GestureBatcher.Batch){
-  val metrics=service.resources.displayMetrics
-  val w=metrics.widthPixels
-  val h=metrics.heightPixels
+ private fun send(batch:GestureBatcher.Batch,targetAt:Long){
+  val (w,h)=viewport()
+  val now=SystemClock.uptimeMillis()
+  // A dispatch arriving late can partially recover by removing startDelay.
+  val startDelay=(targetAt-now).coerceAtLeast(0L)
+  val late=(now-targetAt).coerceAtLeast(0L)
+  if(late>10L){lateBatches++;maxDispatchLateMs=maxOf(maxDispatchLateMs,late)}
   try{
    val builder=GestureDescription.Builder()
    var strokeCount=0
    var validNotes=0
    for(note in batch.notes){
-    val strokes=makeStrokes(note,batch.startMs,w,h)
+    val strokes=makeStrokes(note,batch.startMs,startDelay,w,h)
     if(strokeCount+strokes.size>GestureDescription.getMaxStrokeCount()){
      skippedForStrokeLimit++
      continue
