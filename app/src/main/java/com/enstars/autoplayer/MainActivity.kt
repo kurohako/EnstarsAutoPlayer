@@ -60,11 +60,13 @@ class MainActivity:Activity(){
    val completed=p.getInt("completed",0)
    val cancelled=p.getInt("cancelled",0)
    val rejected=p.getInt("rejected",0)
+   val error=p.getString("lastDispatchError","None")
    val last=p.getLong("heartbeatAt",0L)
    val age=if(last>0)(System.currentTimeMillis()-last)/1000 else -1L
    sessionText.text="Session: "+state+" / last stop: "+reason+
     " / heartbeat age: "+age+"s / taps "+taps+
-    " done "+completed+" cancelled "+cancelled+" rejected "+rejected
+    " done "+completed+" cancelled "+cancelled+" rejected "+rejected+
+    " / gesture error: "+error
   }
   button("SHOW LAST STOP REASON"){refreshSessionInfo()}
   refreshSessionInfo()
