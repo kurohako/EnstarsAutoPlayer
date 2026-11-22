@@ -48,7 +48,7 @@ class DebugOverlay(private val context:Context){
   show()
   showFixed(config)
   editing=true;onSave=save
-  view.status="DRAG HANDLES / SAVE"
+  view.status="DRAG YELLOW 1-9 / SAVE"
   view.invalidate()
   view.post{if(editing&&attached)installControls()}
  }
@@ -56,7 +56,25 @@ class DebugOverlay(private val context:Context){
   removeControls()
   if(view.width==0||view.height==0)return
   for(i in 0..8){
-   val handle=View(context)
+   val handle=object:View(context){
+    private val marker=Paint(Paint.ANTI_ALIAS_FLAG)
+    override fun onDraw(canvas:Canvas){
+     val center=handleSize/2f
+     marker.style=Paint.Style.FILL
+     marker.color=0x6633CCFF
+     canvas.drawCircle(center,center,center-2*density,marker)
+     marker.style=Paint.Style.STROKE
+     marker.strokeWidth=2.5f*density
+     marker.color=Color.YELLOW
+     canvas.drawCircle(center,center,center-3*density,marker)
+     marker.style=Paint.Style.FILL
+     marker.color=Color.WHITE
+     marker.textAlign=Paint.Align.CENTER
+     marker.textSize=17*density
+     marker.isFakeBoldText=true
+     canvas.drawText("${i+1}",center,center+6*density,marker)
+    }
+   }
    val (x,y)=view.screenPoint(i)
    var startX=0f;var startY=0f
    var moved=false
