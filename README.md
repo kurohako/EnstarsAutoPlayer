@@ -1,39 +1,43 @@
-# EnstarsAutoPlayer V3.1 — Android no-Root chart playback prototype
+# EnstarsAutoPlayer V3.6 — Android no-Root rhythm chart automation (experimental)
 
-This is **experimental** and is not a full automatic Perfect Combo player. Android accessibility gestures are used for taps; no Root required.
+Build: GitHub Actions > **Build Android APK** > latest successful run > **EnstarsAutoPlayer-debug-apk**.
+Package: `com.enstars.autoplayer`. Android 11+; manual Accessibility Service enablement required.
 
-## Video-derived offline chart (2026-11-22)
-- Input: user-provided 1280x720, 60 FPS recording (`1000029417.mp4`), 137.28 seconds
-- Detection: 660 *visual candidate* events from full-frame offline color and trajectory tracking
-- 507 blue Tap candidates are bundled directly into the app (504 tagged high, 3 medium by internal heuristics)
-- 111 orange and 42 pink candidates require manual gesture-type, hold path and direction verification; they are **not played**
-- Video ends with 860 Combo, which **does not prove** that all discrete notes have been extracted
-- Video timestamps estimate judgment arrivals; the set is incomplete and may contain errors. It is **not** an official or verified score.
+## What's new in V3.6
+- **SYNC ON FIRST NOTE**: Start the offline chart, switch to the game, and touch the small SYNC ring located directly on the first calibrated note target when the note crosses the judgment circle. Finger-down time is used as chart time origin; the ring disappears on release and the service injects the first note gesture.
+- **Typed gestures**: Tap, left/right/up/down Flick, timed stationary Hold, path-based Slide and optional Flick release at the end of a Hold/Slide.
+- **Multi-touch overlap planner**: simultaneous or overlapping notes are batched into one `GestureDescription` to avoid Android cancelling ongoing holds. Slides with multiple timed knots use `continueStroke()` for each segment.
+- **Built-in 60-FPS chart candidates**: 508 blue Tap candidates, 42 left-Flick visual candidates, 24 right-Flick visually screened arrow candidates, derived from the user-provided music video. Flick guesses are enabled by default, but can be disabled before selecting the chart. *Timing and all candidate classifications remain experimental and may be wrong.*
+- **Video JSON v2 and esmchartplayer .txt chart imports**: if exact Hold/Slide end times are provided, V3.6 plays them automatically; ordinary colored blobs alone are not sufficient to infer hold durations.
+- Existing manual nine-point drag calibration, touch-through overlay, hold-to-stop control, and stop-reason diagnostics are retained.
 
-## Use on phone
-1. Install the APK from GitHub Actions, enable EnstarsAutoPlayer Accessibility Service.
-2. Open the exact song/difficulty from the supplied source recording.
-3. If necessary, manually calibrate the nine judgment points using **Edit 9 points**, drag each handle, then **SAVE**.
-4. Choose **USE BUNDLED VIDEO CHART (507 TAP candidates)**. Alternatively, select **Import chart (.txt or video .json)** for your own chart.
-5. Choose **SHOW FLOATING START / STOP**; switch to game.
-6. Press **START**; when the **first** note reaches its judgment circle press **SYNC FIRST NOTE** to anchor the video-based timeline.
-7. **STOP** in the game or from the app to cancel pending gestures.
+## Phone test
+1. Install the APK and enable EnstarsAutoPlayer under Android Accessibility settings.
+2. Open the game and calibrate nine targets once (Edit 9 points > drag > SAVE).
+3. In the app, select **USE BUILT-IN VIDEO CHART** for the supplied `ハム太郎とっとこうた` Special recording, or import a complete third-party `.txt` / V3.6 `.json` chart.
+4. Return to game. In the app you can press **SHOW FLOATING START / STOP** beforehand, then press floating **START**.
+5. Wait for the first note. The **SYNC** ring is over its judgment point; tap that ring in time with the first note. The overlay is otherwise touch-through.
+6. To stop intentionally, long-press **HOLD STOP**. For unexpected exits, open **SHOW LAST STOP REASON**.
 
-No screenshot loop is needed for this chart mode. A separate legacy experimental live screenshot detector remains available and has limitations on Android 16.
+## Structured V3.6 chart JSON
+The `examples/v3.6-typed-chart-EXAMPLE-ONLY.json` file is *demonstration data*, not real song timing.
 
-## Project structure
-- `ChartParser.kt`: reader for esmchartplayer text chart format, and dispatch to video JSON reader
-- `VideoChartParser.kt`: imports `enstars-video-v1` candidate JSON, retains high/medium blue Tap candidates
-- `BundledVideoChart.kt`: compressed offline 507-Tap dataset from the supplied recording
-- `AutoPlayService.kt`: scheduling, manual first-note synchronization, AccessibilityService gestures
-- `DebugOverlay.kt`: touch-through overlay and draggable calibration handles
-- `MainActivity.kt`: chart import, bundled selection, diagnostics and player controls
+`format` must be `enstars-video-v2`; `notes` is a list of objects:
+- `timeMs`: hit time relative to the chart clock, milliseconds
+- `lane`: judgment location left-to-right 1..9, half lanes allowed
+- `type`: `tap`, `flick_left`, `flick_right`, `flick_up`, `flick_down`, `hold`, `slide`
+- `confidence`: `high` or `medium` (low and unknown are skipped)
+- For `hold`/`slide`: `endTimeMs` required and greater than `timeMs`
+- `path` for slide: array of `{"timeMs": ...,"lane":...}` waypoints
+- Optional `release`: `flick_left`, `flick_right`, `flick_up`, `flick_down`
 
-## Limitations and APK upgrading
-- Flick, slides, hold duration, and special Ensemble notes are **not implemented** in the video chart player.
-- First-note synchronization is manual; Android gesture latency and video/audio clock mismatch may cause MISS.
-- GitHub Actions currently produces debug APKs. A permanent release signing key is **not configured** unless repository secrets are set. Consequently, debug APKs from different builds may require a one-time reinstall and **may not** preserve settings; back up calibration coordinates first.
-- A signed release upgrade APK is only built if all four repository secrets are configured: `ENSTARS_KEYSTORE_BASE64`, `ENSTARS_KEYSTORE_PASSWORD`, `ENSTARS_KEY_ALIAS`, and `ENSTARS_KEY_PASSWORD`. Keep the keystore backed up privately. Do not commit secrets.
+`esmchartplayer` text charts recognize O/S taps, L/R/U/D directional flicks and chained `=` timed hold knots, including nonjudgment turns. These source formats may express exceptional sequences this beta cannot reproduce.
 
-## Build
-GitHub Actions > Build Android APK > successful workflow > Artifacts > EnstarsAutoPlayer-debug-apk.
+## Technical boundaries
+Android `AccessibilityService.dispatchGesture()` cancels active gestures when another is submitted. The planner groups overlapping events; no-Root service cannot guarantee zero latency or uninterrupted multi-touch on every phone. Gestures have a maximum of 10 strokes; excess strokes in one batch are skipped with `SKIP` diagnostics rather than crashing the app. Video estimates may miss or misclassify notes. The built-in chart **does not contain verified Hold/Slide endpoints**: those need complete typed chart data or offline manual annotation, and are not fabricated.
+
+## APK upgrading
+The project supports `versionName=3.6.x` and monotonically increasing `versionCode`. A signed release APK requires persistent GitHub Secrets (`ENSTARS_KEYSTORE_BASE64`, `ENSTARS_KEYSTORE_PASSWORD`, `ENSTARS_KEY_ALIAS`, `ENSTARS_KEY_PASSWORD`). Without those, the workflow publishes only Debug APKs and seamless in-place upgrades are **not guaranteed** across signing keys. Back up calibration before any uninstall.
+
+## Build verification
+GitHub Actions builds the Debug APK and runs `:app:testDebugUnitTest` tests for typed parser and gesture overlap plans.
