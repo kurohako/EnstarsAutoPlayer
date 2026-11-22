@@ -52,6 +52,17 @@ class MainActivity:Activity(){
   label("Enstars AutoPlayer V3.1 - Video chart importer")
   chartInfo=TextView(this).apply{text="No chart imported yet";textSize=15f}
   root.addView(chartInfo)
+  button("USE BUNDLED VIDEO CHART (425 TAP candidates)"){
+   try{
+    val raw=BundledVideoChart.asJson()
+    val chart=ChartParser.parse(raw)
+    getSharedPreferences("chart",MODE_PRIVATE).edit().putString("chartText",raw).apply()
+    chartInfo.text="VIDEO: "+chart.taps.size+" candidate TAPs (incomplete)"
+    Toast.makeText(this,"Bundled video chart selected",Toast.LENGTH_LONG).show()
+   }catch(e:Exception){
+    chartInfo.text="Bundled chart error: "+e.message
+   }
+  }
   button("Import chart (.txt or video .json)"){
    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
     addCategory(Intent.CATEGORY_OPENABLE)
