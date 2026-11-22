@@ -89,7 +89,8 @@ _1+0/4@O1
   val notes=(0..8).map{PlayNote(1000L,it.toFloat(),NoteKind.TAP)}+
    listOf(PlayNote(1000L,4.5f,NoteKind.TAP),PlayNote(1000L,3.5f,NoteKind.TAP))
   val plan=GestureBatcher.plan(notes)
-  assertEquals(11,plan.batches.sumOf{it.notes.size})
+  assertEquals(10,plan.batches.sumOf{it.notes.size})
+  assertEquals(1,plan.overflow)
   assertTrue(plan.batches.all{it.notes.size<=10})
  }
 }
