@@ -21,7 +21,7 @@ class MainActivity:Activity(){
    root.addView(this,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   }
   fun button(s:String,action:()->Unit)=root.addView(Button(this).apply{text=s;setOnClickListener{action()}})
-  label("Enstars AutoPlayer V2.4 - Calibration diagnostics")
+  label("Enstars AutoPlayer V2.5 - Ring template calibration")
   label("Lane X positions (0..1, comma separated)")
   val xs=field(prefs.getString("xs",GameConfig().laneXs.joinToString(","))!!)
   label("Legacy Y setting (curved 9-lane targets are used)")
