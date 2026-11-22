@@ -14,6 +14,11 @@ class SlowReferenceChartTest {
   assertEquals(31,refined.counts[NoteKind.FLICK_RIGHT])
   assertEquals(42,refined.counts[NoteKind.FLICK_LEFT])
   assertEquals(623,refined.events.size)
+  for (chart in listOf(old,refined)){
+   val plan=GestureBatcher.plan(chart.events)
+   assertEquals(0,plan.overflow)
+   assertEquals(chart.events.size,plan.batches.sumOf{batch->batch.strokes.count{!it.continuesFromPrevious}})
+  }
  }
  @Test fun slowReferenceCanDisableUnverifiedFlicks(){
   val chart=ChartParser.parse(BundledVideoChart.asJson(false,true))

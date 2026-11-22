@@ -1,4 +1,11 @@
-# EnstarsAutoPlayer V3.7 — Slow-video chart refinement (experimental)
+# EnstarsAutoPlayer V3.8
+
+- The first-note SYNC ring uses the saved nine-point calibration, including half lanes. Finger-down sets the chart clock. The timing offset shifts the scheduled notes from that clock.
+- Offline playback schedules Tap, Hold, Slide and Flick on the same clock. Batches wait for the previous gesture result and carry any still-held pointers across scheduled slide knots and Flick releases.
+- Experimental live detection tracks multiple visible blue heads per lane. Android 16 limits accessibility screenshots to one request every 333 ms, so heads can still pass between frames. Imported charts supply the timing for offline playback.
+- **SHOW LAST STOP REASON** includes completed, cancelled, rejected and skipped notes, plus late batch counts and maximum dispatch delay. **HOLD STOP** ends playback.
+
+## V3.7 experimental slow-video chart refinement
 
 ## November 2026 slow-reference comparison
 - Compared the unblocked slow-note reference recording `1000029428.mp4` with the existing original-speed chart and the V3.6 test recording `1000029427.mp4`.
@@ -19,9 +26,9 @@ Build: GitHub Actions > **Build Android APK** > latest successful run > **Enstar
 Package: `com.enstars.autoplayer`. Android 11+; manual Accessibility Service enablement required.
 
 ## What's new in V3.6
-- **SYNC ON FIRST NOTE**: Start the offline chart, switch to the game, and touch the small SYNC ring located directly on the first calibrated note target when the note crosses the judgment circle. Finger-down time is used as chart time origin; the ring disappears on release and the service injects the first note gesture.
+- **SYNC ON FIRST NOTE**: Start the offline chart, switch to the game, and touch the small SYNC ring located directly on the first calibrated note target when the note crosses the judgment circle. The ring closes on finger-down and the service begins scheduling the chart.
 - **Typed gestures**: Tap, left/right/up/down Flick, timed stationary Hold, path-based Slide and optional Flick release at the end of a Hold/Slide.
-- **Multi-touch overlap planner**: simultaneous or overlapping notes are batched into one `GestureDescription` to avoid Android cancelling ongoing holds. Slides with multiple timed knots use `continueStroke()` for each segment.
+- **Multi-touch overlap planner**: simultaneous or overlapping notes share gesture batches. Sustained notes use `continueStroke()` across batches at timed knots, release Flicks, and stroke limits.
 - **Built-in 60-FPS chart candidates**: 508 blue Tap candidates, 42 left-Flick visual candidates, 24 right-Flick visually screened arrow candidates, derived from the user-provided music video. Flick guesses are enabled by default, but can be disabled before selecting the chart. *Timing and all candidate classifications remain experimental and may be wrong.*
 - **Video JSON v2 and esmchartplayer .txt chart imports**: if exact Hold/Slide end times are provided, V3.6 plays them automatically; ordinary colored blobs alone are not sufficient to infer hold durations.
 - Existing manual nine-point drag calibration, touch-through overlay, hold-to-stop control, and stop-reason diagnostics are retained.
@@ -49,10 +56,10 @@ The `examples/v3.6-typed-chart-EXAMPLE-ONLY.json` file is *demonstration data*, 
 `esmchartplayer` text charts recognize O/S taps, L/R/U/D directional flicks and chained `=` timed hold knots, including nonjudgment turns. These source formats may express exceptional sequences this beta cannot reproduce.
 
 ## Technical boundaries
-Android `AccessibilityService.dispatchGesture()` cancels active gestures when another is submitted. The planner groups overlapping events; no-Root service cannot guarantee zero latency or uninterrupted multi-touch on every phone. Gestures have a maximum of 10 strokes; excess strokes in one batch are skipped with `SKIP` diagnostics rather than crashing the app. Video estimates may miss or misclassify notes. The built-in chart **does not contain verified Hold/Slide endpoints**: those need complete typed chart data or offline manual annotation, and are not fabricated.
+Android `AccessibilityService.dispatchGesture()` can cancel an active gesture when submitting an unrelated gesture. The planner respects the platform's 10-stroke limit per batch and reports overlaps that exceed the available touch pointers as `SKIP`. Gesture completion reports Android's injection result. Game judgments and input latency require a device test. Built-in video estimates may miss or misclassify notes. Hold and Slide endpoints require a complete typed chart or verified annotation.
 
 ## APK upgrading
-The project supports `versionName=3.6.x` and monotonically increasing `versionCode`. A signed release APK requires persistent GitHub Secrets (`ENSTARS_KEYSTORE_BASE64`, `ENSTARS_KEYSTORE_PASSWORD`, `ENSTARS_KEY_ALIAS`, `ENSTARS_KEY_PASSWORD`). Without those, the workflow publishes only Debug APKs and seamless in-place upgrades are **not guaranteed** across signing keys. Back up calibration before any uninstall.
+The project uses `versionName=3.8.x` and increases `versionCode` with the Actions run number. A signed release APK requires persistent GitHub Secrets (`ENSTARS_KEYSTORE_BASE64`, `ENSTARS_KEYSTORE_PASSWORD`, `ENSTARS_KEY_ALIAS`, `ENSTARS_KEY_PASSWORD`). Android requires the same signing key for in-place upgrades. Back up calibration before any uninstall.
 
 ## Build verification
-GitHub Actions builds the Debug APK and runs `:app:testDebugUnitTest` tests for typed parser and gesture overlap plans.
+With Java 17, Android SDK Platform 35 and Gradle 8.9 installed, run `gradle :app:testDebugUnitTest :app:assembleDebug`. The **Build Android APK** workflow publishes the Debug APK on pull requests to `main` after the unit tests pass.

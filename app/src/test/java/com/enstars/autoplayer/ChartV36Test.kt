@@ -45,7 +45,7 @@ _3+2/4@L-3
   assertTrue(chart.events.any{it.kind==NoteKind.HOLD})
   assertEquals(2,chart.events.first{it.kind==NoteKind.SLIDE}.path.size)
  }
- @Test fun overlappingHoldAndTapAreOneGestureBatch(){
+ @Test fun overlappingHoldSharesEachGestureWithTapAndFlick(){
   val notes=listOf(
    PlayNote(1000,3f,NoteKind.HOLD,2000),
    PlayNote(1250,4f,NoteKind.TAP),
@@ -53,8 +53,11 @@ _3+2/4@L-3
    PlayNote(2400,6f,NoteKind.TAP)
   )
   val plan=GestureBatcher.plan(notes)
-  assertEquals(2,plan.batches.size)
-  assertEquals(3,plan.batches[0].notes.size)
+  val tapBatch=plan.batches.first{it.notes.any{note->note.kind==NoteKind.TAP}}
+  assertTrue(tapBatch.strokes.any{it.note.kind==NoteKind.HOLD&&it.continuesInNext})
+  val flickBatch=plan.batches.first{it.notes.any{note->note.kind==NoteKind.FLICK_LEFT}}
+  assertTrue(flickBatch.strokes.any{it.note.kind==NoteKind.HOLD&&it.continuesFromPrevious})
+  assertEquals(2000L,plan.batches.first{it.startMs==1500L}.endMs)
   assertEquals(0,plan.overflow)
  }
  @Test fun relativeBeatSyntaxKeepsBarContext(){
