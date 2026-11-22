@@ -29,7 +29,7 @@ class JudgmentPointDetector {
  /**
   * Multiscale radial template derived from the supplied concentric-ring icon:
   * bright central disc, darker annulus, bright outer ring, darker exterior.
-  * The connecting judgment line is suppressed by using off-axis sample angles.
+  * Connecting lines are suppressed by robust angular sampling, independent of line direction.
   * Coordinates are refined from the image, never from hardcoded lane positions.
   */
  private fun refineCircleCenter(image:Bitmap,cx:Float,cy:Float):Point? {
@@ -45,22 +45,25 @@ class JudgmentPointDetector {
     val center=light(image.getPixel(x,y))
     for(r in radii){
      if(x-r*1.35f<0||x+r*1.35f>=w||y-r*1.35f<0||y+r*1.35f>=h)continue
-     var ring=0f;var moat=0f;var outside=0f
-     var n=0
-     // Avoid horizontal angles: the line through the icon biases brightness.
-     for(k in 0 until 16){
-      val theta=(k+.5)*Math.PI/8.0
+     // All angles are eligible. End targets have diagonal incoming lines;
+     // robust trimming discards contaminated sectors regardless of direction.
+     val ringSamples=ArrayList<Float>(24)
+     val moatSamples=ArrayList<Float>(24)
+     val outsideSamples=ArrayList<Float>(24)
+     for(k in 0 until 24){
+      val theta=(k+.5)*Math.PI/12.0
       val dx=cos(theta).toFloat();val dy=sin(theta).toFloat()
-      if(abs(dy)<.27f)continue
-      ring+=light(image.getPixel((x+dx*r).toInt(),(y+dy*r).toInt()))
-      moat+=light(image.getPixel((x+dx*r*.65f).toInt(),(y+dy*r*.65f).toInt()))
-      outside+=light(image.getPixel((x+dx*r*1.28f).toInt(),(y+dy*r*1.28f).toInt()))
-      n++
+      ringSamples.add(light(image.getPixel((x+dx*r).toInt(),(y+dy*r).toInt())))
+      moatSamples.add(light(image.getPixel((x+dx*r*.65f).toInt(),(y+dy*r*.65f).toInt())))
+      outsideSamples.add(light(image.getPixel((x+dx*r*1.28f).toInt(),(y+dy*r*1.28f).toInt())))
      }
-     if(n==0)continue
-     ring/=n;moat/=n;outside/=n
-     val score=.32f*center+.40f*ring+.20f*(ring-moat)+.08f*(ring-outside) -
-      .10f*hypot(x-cx,y-cy)/nominal
+     val ring=trimmedMean(ringSamples)
+     val moat=trimmedMean(moatSamples)
+     val outside=trimmedMean(outsideSamples)
+     // Prefer a bright, circular ring around a bright disc, with darker
+     // surrounding annulus. No assumption about line orientation.
+     val score=.28f*center+.42f*ring+.23f*(ring-moat)+
+      .07f*(ring-outside)-.10f*hypot(x-cx,y-cy)/nominal
      if(score>bestScore){
       bestScore=score
       best=Point(x.toFloat(),y.toFloat(),score)
@@ -70,6 +73,11 @@ class JudgmentPointDetector {
   }
   // Reject ambiguous refinement rather than forcing a shift.
   return best?.takeIf{bestScore>.57f && hypot(it.x-cx,it.y-cy)<nominal*.65f}
+ }
+ private fun trimmedMean(samples:List<Float>):Float{
+  val sorted=samples.sorted()
+  val trim=(sorted.size*.17f).toInt()
+  return sorted.subList(trim,sorted.size-trim).average().toFloat()
  }
  private fun light(color:Int):Float{
   val r=Color.red(color);val g=Color.green(color);val b=Color.blue(color)
