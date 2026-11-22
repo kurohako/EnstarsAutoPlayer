@@ -11,12 +11,13 @@ data class PlayNote(
  val kind:NoteKind,
  val endTimeMs:Long=timeMs,
  val path:List<ChartWaypoint> = emptyList(),
- val confidence:String="source"
+ val confidence:String="source",
+ val releaseKind:NoteKind?=null
 ) {
  fun end():Long = when(kind) {
   NoteKind.TAP -> timeMs+32L
   NoteKind.FLICK_LEFT,NoteKind.FLICK_RIGHT,NoteKind.FLICK_UP,NoteKind.FLICK_DOWN -> timeMs+85L
-  NoteKind.HOLD,NoteKind.SLIDE -> maxOf(timeMs+32L,endTimeMs)
+  NoteKind.HOLD,NoteKind.SLIDE -> maxOf(timeMs+32L,endTimeMs)+(if(releaseKind!=null)70L else 0L)
  }
 }
 
