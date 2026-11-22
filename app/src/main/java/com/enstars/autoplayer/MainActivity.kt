@@ -50,7 +50,7 @@ class MainActivity:Activity(){
    return s
   }
 
-  label("Enstars AutoPlayer V3.7 - Slow Video Refinement")
+  label("Enstars AutoPlayer V3.8 - Calibrated SYNC / Dense Note Repair")
   val sessionText=TextView(this).apply{textSize=14f}
   root.addView(sessionText)
   fun refreshSessionInfo(){
@@ -114,7 +114,7 @@ class MainActivity:Activity(){
    }catch(_:Exception){}
   }
   label("Slow refinement is experimental. Toggle it off to compare the original V3.6 chart. HOLD/SLIDE still require verified start/end times; orange edges alone cannot determine duration.")
-  label("SYNC circle appears ON the first note target. Touch the circle when the note reaches judgment, and release; sync starts automatically.")
+  label("SYNC ring follows the last saved calibration. Press DOWN as first note reaches the target: no need to wait for finger release.")
   val syncOffset=EditText(this).apply{
    inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
    setText(getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L).toString())
