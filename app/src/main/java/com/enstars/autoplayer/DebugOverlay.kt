@@ -58,7 +58,10 @@ class DebugOverlay(private val context: Context) {
     paint.color=Color.GREEN
     paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density
     canvas.drawCircle(x,y,18*density,paint)
+    canvas.drawLine(x-24*density,y,x+24*density,y,paint)
+    canvas.drawLine(x,y-24*density,x,y+24*density,paint)
     paint.style=Paint.Style.FILL
+    canvas.drawCircle(x,y,3*density,paint)
     paint.textSize=13*density
     canvas.drawText("${index+1}",x+17*density,y-10*density,paint)
    }
