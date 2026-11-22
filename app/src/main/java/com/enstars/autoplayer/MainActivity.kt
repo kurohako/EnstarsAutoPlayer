@@ -49,13 +49,14 @@ class MainActivity:Activity(){
    return s
   }
 
-  label("Enstars AutoPlayer V3 - Chart prototype")
+  label("Enstars AutoPlayer V3.1 - Video chart importer")
   chartInfo=TextView(this).apply{text="No chart imported yet";textSize=15f}
   root.addView(chartInfo)
-  button("Import esmchartplayer .txt chart"){
+  button("Import chart (.txt or video .json)"){
    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
     addCategory(Intent.CATEGORY_OPENABLE)
-    type="text/plain"
+    type="*/*"
+    putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("application/json","text/plain","application/octet-stream"))
    },chartRequest)
   }
   getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)?.let{
@@ -64,7 +65,8 @@ class MainActivity:Activity(){
     chartInfo.text="Saved: "+chart.difficulty+" | TAP "+chart.taps.size+" | skipped "+chart.skipped
    }catch(_:Exception){}
   }
-  label("Chart TAP beta: switch to game, tap SYNC FIRST NOTE exactly when first note reaches judgment line. Other note types are skipped.")
+  label("Imported video candidates are incomplete. Only medium/high TAP candidates are playable; flick and orange notes are skipped.")
+  label("Tap SYNC FIRST NOTE when the first tap reaches its judgment circle.")
   val syncOffset=EditText(this).apply{
    inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
    setText(getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L).toString())
