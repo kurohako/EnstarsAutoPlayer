@@ -41,7 +41,8 @@ object ChartParser {
      val (s,b,underBeat,plainBeat,num,den,dec)=m.destructured
      if(s.isNotEmpty())section=s.toInt()
      if(b.isNotEmpty())bar=b.toInt()
-     if(underBeat.isNotEmpty())beat=underBeat.toInt()\n     if(plainBeat.isNotEmpty())beat=plainBeat.toInt()
+     if(underBeat.isNotEmpty())beat=underBeat.toInt()
+     if(plainBeat.isNotEmpty())beat=plainBeat.toInt()
      fraction=when{
       den.isNotEmpty()&&den.toInt()!=0->num.toDouble()/den.toDouble()
       dec.isNotEmpty()->("0."+dec).toDouble()
