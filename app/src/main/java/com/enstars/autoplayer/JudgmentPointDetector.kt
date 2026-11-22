@@ -2,104 +2,119 @@ package com.enstars.autoplayer
 
 import android.graphics.Bitmap
 import android.graphics.Color
-import kotlin.math.abs
-import kotlin.math.hypot
+import kotlin.math.*
 
-/**
- * Detects nine white circular judgment targets directly from the current frame.
- * Uses a coarse-to-fine circular color/edge score, followed by arc validation.
- * No stored screen coordinates are used as detection inputs.
- */
+/** Detects actual white judgment circles; never uses fixed screen tap coordinates. */
 class JudgmentPointDetector {
  data class Point(val x:Float,val y:Float,val confidence:Float)
- private var cached:List<Point>?=null
- private var missed=0
+ data class Result(val points:List<Point>?,val candidates:List<Point>,val detected:Int)
+ private var lastGood:List<Point>?=null
+ private var missing=0
 
- fun locate(bitmap:Bitmap):List<Point>? {
-  val w=bitmap.width;val h=bitmap.height
-  if(w<200||h<120)return cached
-  val scale=640f/w
-  val sw=640
-  val sh=(h*scale).toInt().coerceAtLeast(1)
+ fun locate(bitmap:Bitmap):Result {
+  val w=bitmap.width; val h=bitmap.height
+  if(w<200||h<120)return Result(null,emptyList(),0)
+  val sw=640;val sh=(h.toFloat()*sw/w).roundToInt().coerceAtLeast(1)
   val small=Bitmap.createScaledBitmap(bitmap,sw,sh,true)
   try {
-   val radii=listOf((sw*.018f).toInt(),(sw*.021f).toInt(),(sw*.025f).toInt()).map{it.coerceAtLeast(5)}.distinct()
-   val candidates=mutableListOf<Point>()
-   val step=5
-   val yStart=(sh*.39f).toInt()
-   val yEnd=(sh*.96f).toInt()
-   for(y in yStart until yEnd step step) for(x in (sw*.12f).toInt() until (sw*.89f).toInt() step step) {
-    var best=0f
-    for(r in radii){
-     if(x-r-3<0||x+r+3>=sw||y-r-3<0||y+r+3>=sh)continue
-     var ring=0f;var outside=0f
-     for(k in 0 until 12){
-      val a=k*Math.PI/6
-      val dx=kotlin.math.cos(a).toFloat()
-      val dy=kotlin.math.sin(a).toFloat()
-      ring+=whiteness(small.getPixel((x+dx*r).toInt(),(y+dy*r).toInt()))
-      outside+=whiteness(small.getPixel((x+dx*(r+4)).toInt(),(y+dy*(r+4)).toInt()))
-     }
-     val center=whiteness(small.getPixel(x,y))
-     val score=(ring/12f)*.65f + center*.20f + ((ring-outside)/12f).coerceAtLeast(0f)*.15f
-     if(score>best)best=score
-    }
-    if(best>.72f)candidates.add(Point(x/scale,y/scale,best))
-   }
-   // Non-maximum suppression and left-to-right arc consistency.
-   val picked=mutableListOf<Point>()
-   for(p in candidates.sortedByDescending{it.confidence}){
-    if(picked.none{hypot(it.x-p.x,it.y-p.y)<w*.045f})picked.add(p)
-    if(picked.size>=45)break
-   }
-   val sorted=picked.sortedBy{it.x}
-   // Search ordered 9-point sequences constrained by a U-shaped arc.
-   // The point geometry is inferred from detected candidates, not a fixed template.
-   val best=selectArc(sorted,w,h)
-   if(best!=null){cached=best;missed=0;return best}
-   missed++
-   if(missed>20)cached=null
-   return cached
-  } finally {if(small!==bitmap)small.recycle()}
+   val candidates=extractCandidates(small).map{Point(it.x*w/sw,it.y*h/sh,it.confidence)}
+   val chosen=selectArc(candidates,w,h)
+   if(chosen!=null){lastGood=chosen;missing=0}
+   else if(++missing>12)lastGood=null
+   return Result(chosen,candidates,candidates.size)
+  }finally{if(small!==bitmap)small.recycle()}
  }
 
- private fun whiteness(c:Int):Float{
-  val r=Color.red(c);val g=Color.green(c);val b=Color.blue(c)
-  val min=minOf(r,g,b);val max=maxOf(r,g,b)
-  return (min/255f)*((1f-(max-min)/255f)*.7f+.3f)
+ private fun extractCandidates(image:Bitmap):List<Point>{
+  val w=image.width;val h=image.height
+  val stride=2
+  val gw=w/stride;val gh=h/stride
+  val bright=BooleanArray(gw*gh)
+  for(gy in (gh*.28f).toInt() until (gh*.97f).toInt()){
+   for(gx in (gw*.04f).toInt() until (gw*.96f).toInt()){
+    val c=image.getPixel(gx*stride,gy*stride)
+    val r=Color.red(c);val g=Color.green(c);val b=Color.blue(c)
+    val min=minOf(r,g,b);val max=maxOf(r,g,b)
+    bright[gy*gw+gx]=min>=195 && max-min<=58
+   }
+  }
+  val seen=BooleanArray(bright.size)
+  val queue=IntArray(bright.size)
+  val found=mutableListOf<Point>()
+  for(i in bright.indices){
+   if(!bright[i]||seen[i])continue
+   var head=0;var tail=1;queue[0]=i;seen[i]=true
+   var sumX=0L;var sumY=0L;var minX=gw;var maxX=0;var minY=gh;var maxY=0
+   while(head<tail){
+    val v=queue[head++];val x=v%gw;val y=v/gw
+    sumX+=x;sumY+=y
+    minX=min(minX,x);maxX=max(maxX,x);minY=min(minY,y);maxY=max(maxY,y)
+    for(d in intArrayOf(-gw,gw,-1,1)){
+     val n=v+d
+     if(n<0||n>=bright.size||seen[n]||!bright[n])continue
+     if(abs(n%gw-x)+abs(n/gw-y)!=1)continue
+     seen[n]=true;queue[tail++]=n
+    }
+   }
+   val bw=maxX-minX+1;val bh=maxY-minY+1
+   val diameter=(w*.025f/stride).coerceAtLeast(4f)
+   if(tail<8||tail>1800||bw<diameter*.4f||bh<diameter*.4f)continue
+   val ratio=bw.toFloat()/bh
+   if(ratio !in .65f..1.55f)continue
+   val fill=tail.toFloat()/(bw*bh)
+   if(fill !in .27f..1.0f)continue
+   val cx=(sumX.toFloat()/tail)*stride
+   val cy=(sumY.toFloat()/tail)*stride
+   val confidence=(1f-abs(1f-ratio)).coerceIn(0f,1f)*.45f+fill.coerceIn(0f,1f)*.55f
+   found.add(Point(cx,cy,confidence))
+  }
+  return found.sortedByDescending{it.confidence}.take(100)
  }
 
- private fun selectArc(points:List<Point>,w:Int,h:Int):List<Point>?{
-  if(points.size<9)return null
-  // Group points by approximate normalized X buckets only for candidate grouping.
-  // These buckets are broad; actual output centers always come from image pixels.
-  val bands=9
-  val left=w*.13f;val right=w*.87f
-  val groups=(0 until bands).map{i->
-   val target=left+(right-left)*i/8f
-   points.filter{abs(it.x-target)<w*.065f}
-    .sortedByDescending{it.confidence}.take(5)
-  }
-  if(groups.any{it.isEmpty()})return null
-  var beam=listOf(emptyList<Point>() to 0f)
-  for(i in 0 until 9){
-   val next=mutableListOf<Pair<List<Point>,Float>>()
-   for((seq,score) in beam)for(p in groups[i]){
-    if(seq.isNotEmpty()&&p.x<=seq.last().x+w*.025f)continue
-    if(seq.isNotEmpty()){
-     val dy=p.y-seq.last().y
-     if(i<=4&&dy < -h*.045f)continue
-     if(i>=5&&dy > h*.045f)continue
-    }
-    next.add((seq+p) to (score+p.confidence))
+ private fun selectArc(candidates:List<Point>,w:Int,h:Int):List<Point>?{
+  if(candidates.size<9)return null
+  // Fit a symmetric U-shaped quadratic using image-derived candidates.
+  // Candidate selection is geometric; no predefined lane coordinates.
+  val sorted=candidates.sortedBy{it.x}
+  var best:List<Point>?=null
+  var bestScore=Float.NEGATIVE_INFINITY
+  val left=sorted.filter{it.x<w*.4f}.take(30)
+  val right=sorted.filter{it.x>w*.6f}.take(30)
+  val bottoms=sorted.filter{it.y>h*.65f}.take(35)
+  for(a in left)for(b in right)for(mid in bottoms){
+   if(mid.x<=a.x||mid.x>=b.x)continue
+   val span=b.x-a.x
+   if(span<w*.45f)continue
+   if(mid.y-a.y<h*.15f||mid.y-b.y<h*.15f)continue
+   val x0=mid.x;val denom=(a.x-x0)*(a.x-x0)+(b.x-x0)*(b.x-x0)
+   if(denom<1f)continue
+   val curvature=((a.y-mid.y)*(a.x-x0)*(a.x-x0)+(b.y-mid.y)*(b.x-x0)*(b.x-x0))/denom
+   // Least-complex quadratic from three detected points.
+   val da=(a.x-mid.x);val db=(b.x-mid.x)
+   val slopeA=(a.y-mid.y)/da;val slopeB=(b.y-mid.y)/db
+   val A=(slopeA-slopeB)/(da-db)
+   val B=slopeA-A*da
+   if(A>=0f||abs(B)>1.5f)continue
+   val selected=mutableListOf<Point>()
+   var score=0f
+   for(i in 0..8){
+    val targetX=a.x+span*i/8f
+    val predictedY=mid.y+A*(targetX-x0)*(targetX-x0)+B*(targetX-x0)
+    val p=candidates.filter{abs(it.x-targetX)<span*.065f && abs(it.y-predictedY)<h*.065f}
+     .minByOrNull{abs(it.x-targetX)/span+abs(it.y-predictedY)/h-it.confidence*.025f}
+     ?:break
+    if(selected.any{hypot(it.x-p.x,it.y-p.y)<w*.025f})break
+    selected.add(p)
+    score+=p.confidence-abs(p.y-predictedY)/h
    }
-   beam=next.sortedByDescending{it.second}.take(80)
-   if(beam.isEmpty())return null
+   if(selected.size==9){
+    val xs=selected.map{it.x}
+    if(xs.zipWithNext().any{(x,y)->y<=x})continue
+    val peak=selected[4].y
+    if(peak<selected[0].y+h*.14f||peak<selected[8].y+h*.14f)continue
+    if(score>bestScore){bestScore=score;best=selected}
+   }
   }
-  return beam.firstOrNull{(seq,_)->
-   seq[4].y>seq[0].y+h*.22f &&
-   seq[4].y>seq[8].y+h*.22f &&
-   abs(seq[0].y-seq[8].y)<h*.13f
-  }?.first
+  return best
  }
 }
