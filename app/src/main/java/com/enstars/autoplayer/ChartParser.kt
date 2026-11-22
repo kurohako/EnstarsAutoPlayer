@@ -9,6 +9,7 @@ object ChartParser {
  private val noteRegex=Regex("""@([OSLRUD])(-?\d+(?:\.5)?)(?:G\d+)?""")
  private val clockRegex=Regex("""^(?:(\d+):|:)?(?:(\d+)_)?(?:_(\d+))?(?:\+(\d+)/(\d+)|\.(\d+))?$""")
  fun parse(input:String):Chart {
+  if(input.trimStart().startsWith("{"))return VideoChartParser.parse(input)
   val sections=mutableMapOf<Int,Section>()
   val taps=mutableListOf<Tap>()
   var difficulty=""
