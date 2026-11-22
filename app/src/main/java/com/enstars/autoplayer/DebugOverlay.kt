@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -25,6 +27,7 @@ class DebugOverlay(private val context:Context){
  private val handles=mutableListOf<View>()
  private var saveButton:TextView?=null
  private var syncButton:TextView?=null
+ private var syncLane:Float?=null
  private val floatingButtons=mutableListOf<View>()
  private val density=context.resources.displayMetrics.density
  private val handleSize=(54*density).roundToInt()
@@ -171,32 +174,80 @@ class DebugOverlay(private val context:Context){
   for(button in floatingButtons)wm.removeView(button)
   floatingButtons.clear()
  }
- fun showSyncButton(onSync:()->Unit){
+ private fun clearSyncTarget(){
+  syncButton?.let{wm.removeView(it)}
+  syncButton=null
+  syncLane=null
+ }
+ private fun placeSyncTarget(){
+  val button=syncButton?:return
+  val lane=syncLane?:return
+  if(!attached||view.width<1||view.height<1)return
+  val (x,y)=view.screenPointLane(lane)
+  val p=button.layoutParams as WindowManager.LayoutParams
+  val size=(60*density).roundToInt()
+  p.width=size;p.height=size
+  p.x=(x-size/2).roundToInt();p.y=(y-size/2).roundToInt()
+  wm.updateViewLayout(button,p)
+ }
+ /**
+  * The only touchable sync window is centered over the calibrated first note.
+  * Finger-down time anchors the song clock; releasing removes the button
+  * before AccessibilityService injects the note gesture.
+  */
+ fun showSyncAtLane(lane:Float,onSync:(Long)->Unit){
   show()
+  clearSyncTarget()
   view.showTargets=false
   view.invalidate()
-  syncButton?.let{wm.removeView(it)}
+  syncLane=lane.coerceIn(0f,8f)
+  var downAt=0L
+  var downX=0f
+  var downY=0f
   val button=TextView(context).apply{
-   text="SYNC FIRST NOTE"
-   textSize=13f
+   text="SYNC"
+   textSize=11f
    gravity=Gravity.CENTER
    setTextColor(Color.WHITE)
-   setBackgroundColor(0xDD176B88.toInt())
-   setOnClickListener{
-    syncButton?.let{wm.removeView(it)}
-    syncButton=null
-    onSync()
+   background=GradientDrawable().apply{
+    shape=GradientDrawable.OVAL
+    setColor(0xAA047C91.toInt())
+    setStroke((3*density).roundToInt(),Color.CYAN)
+   }
+   setOnTouchListener{_,e->
+    when(e.actionMasked){
+     MotionEvent.ACTION_DOWN->{
+      downAt=SystemClock.uptimeMillis()
+      downX=e.rawX;downY=e.rawY
+      true
+     }
+     MotionEvent.ACTION_UP->{
+      val pressed=SystemClock.uptimeMillis()-downAt
+      val moved=kotlin.math.hypot(e.rawX-downX,e.rawY-downY)
+      if(downAt>0 && pressed in 15L..700L && moved<28*density){
+       val origin=downAt
+       downAt=0L
+       clearSyncTarget()
+       onSync(origin)
+      }
+      true
+     }
+     MotionEvent.ACTION_CANCEL->{downAt=0L;true}
+     else->true
+    }
    }
   }
   syncButton=button
-  wm.addView(button,params((155*density).roundToInt(),(48*density).roundToInt(),
-   (12*density).roundToInt(),(60*density).roundToInt(),true))
+  val size=(60*density).roundToInt()
+  val (x,y)=view.screenPointLane(syncLane!!)
+  wm.addView(button,params(size,size,(x-size/2).roundToInt(),(y-size/2).roundToInt(),true))
+  view.post{placeSyncTarget()}
  }
  fun updateStatus(status:String){view.status=status;view.invalidate()}
  fun close(){
   editing=false
   removeControls()
-  syncButton?.let{wm.removeView(it)};syncButton=null
+  clearSyncTarget()
   clearPlayerControls()
   if(attached){wm.removeView(view);attached=false}
  }
@@ -206,6 +257,19 @@ class DebugOverlay(private val context:Context){
   var status="FIXED"
   var showTargets=true
   private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
+  override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){
+   super.onSizeChanged(w,h,oldw,oldh)
+   post{placeSyncTarget()}
+  }
+  fun screenPointLane(lane:Float):Pair<Float,Float>{
+   val lo=kotlin.math.floor(lane).toInt().coerceIn(0,8)
+   val hi=(lo+1).coerceAtMost(8)
+   val t=(lane-lo).coerceIn(0f,1f)
+   val px=xs[lo]*(1-t)+xs[hi]*t
+   val py=ys[lo]*(1-t)+ys[hi]*t
+   return if(width>=height)Pair(px*width,py*height)
+    else Pair(py*width,(1f-px)*height)
+  }
   fun screenPoint(i:Int):Pair<Float,Float> =
    if(width>=height)Pair(xs[i]*width,ys[i]*height)
    else Pair(ys[i]*width,(1f-xs[i])*height)
