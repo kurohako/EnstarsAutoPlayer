@@ -15,6 +15,10 @@ class AutoPlayService:AccessibilityService() {
  private var busy=false
  private lateinit var config:GameConfig
  private lateinit var detector:NoteDetector
+ private val pointDetector=JudgmentPointDetector()
+ private var calibrated=false
+ private var calibrationCount=0
+ private var previousPoints:List<JudgmentPointDetector.Point>?=null
  private var lastTap=LongArray(0)
  private val pending = mutableListOf<Runnable>()
  override fun onServiceConnected(){super.onServiceConnected();instance=this}
@@ -24,7 +28,7 @@ class AutoPlayService:AccessibilityService() {
  fun start(){
   if(running)return
   config=GameConfig.load(this);detector=NoteDetector(config)
-  lastTap=LongArray(config.laneXs.size);running=true;handler.post(::capture)
+  lastTap=LongArray(config.laneXs.size);calibrated=false;calibrationCount=0;previousPoints=null;running=true;handler.post(::capture)
  }
  fun stop(){running=false;handler.removeCallbacksAndMessages(null);pending.clear()}
  private fun capture(){
@@ -49,6 +53,23 @@ class AutoPlayService:AccessibilityService() {
  }
  private fun process(bitmap:Bitmap){
   val now=SystemClock.uptimeMillis()
+  if(!calibrated){
+   val points=pointDetector.locate(bitmap)
+   if(points!=null && points.size==9){
+    val prior=previousPoints
+    val stable=prior!=null && prior.zip(points).all{(a,b)->
+     kotlin.math.hypot(a.x-b.x,a.y-b.y)<bitmap.width*.025f
+    }
+    calibrationCount=if(stable)calibrationCount+1 else 1
+    previousPoints=points
+    if(calibrationCount>=3){
+     config=config.copy(laneXs=points.map{it.x/bitmap.width},laneYs=points.map{it.y/bitmap.height})
+     detector=NoteDetector(config)
+     calibrated=true
+    }
+   }else calibrationCount=0
+   return
+  }
   val hits=detector.detect(bitmap,now)
   if(hits.isEmpty())return
   // Schedule using a monotonic clock. Dispatch is still subject to Android latency.
