@@ -23,8 +23,8 @@ class MainActivity:Activity(){
   fun button(s:String,action:()->Unit)=root.addView(Button(this).apply{text=s;setOnClickListener{action()}})
   label("Enstars AutoPlayer V1 (experimental)")
   label("Lane X positions (0..1, comma separated)")
-  val xs=field(prefs.getString("xs","0.15,0.29,0.43,0.57,0.71,0.85")!!)
-  label("Hit line Y (0..1)")
+  val xs=field(prefs.getString("xs",GameConfig().laneXs.joinToString(","))!!)
+  label("Legacy Y setting (curved 9-lane targets are used)")
   val y=field(prefs.getFloat("y",.82f).toString())
   label("Brightness threshold (0..255)")
   val threshold=field(prefs.getInt("threshold",190).toString())
@@ -32,7 +32,7 @@ class MainActivity:Activity(){
    val lanes=xs.text.toString().split(",").mapNotNull{it.trim().toFloatOrNull()}
    val yy=y.text.toString().toFloatOrNull()
    val t=threshold.text.toString().toIntOrNull()
-   if(lanes.isEmpty()||lanes.size>10||lanes.any{it !in 0f..1f}||yy==null||yy !in .05f.. .95f||t==null||t !in 0..255)
+   if(lanes.isEmpty()||lanes.size!=9||lanes.any{it !in 0f..1f}||yy==null||yy !in .05f.. .95f||t==null||t !in 0..255)
     Toast.makeText(this,"Invalid settings",Toast.LENGTH_LONG).show()
    else{
     prefs.edit().putString("xs",lanes.joinToString(",")).putFloat("y",yy).putInt("threshold",t).apply()
