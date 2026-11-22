@@ -72,4 +72,24 @@ _1+0/4@O1
   assertEquals(10750L,chart.events[2].timeMs)
   assertEquals(12000L,chart.events[3].timeMs)
  }
+ @Test fun closeBlueNotesAreBatchedInsteadOfCancellingTouches(){
+  val notes=listOf(
+   PlayNote(1000L,0f,NoteKind.TAP),
+   PlayNote(1065L,2f,NoteKind.TAP),
+   PlayNote(1130L,4f,NoteKind.TAP),
+   PlayNote(1195L,6f,NoteKind.TAP),
+   PlayNote(1500L,8f,NoteKind.TAP)
+  )
+  val plan=GestureBatcher.plan(notes)
+  assertEquals(2,plan.batches.size)
+  assertEquals(4,plan.batches.first().notes.size)
+  assertEquals(0,plan.overflow)
+ }
+ @Test fun denseChordIsNeverMoreThanTenStrokes(){
+  val notes=(0..8).map{PlayNote(1000L,it.toFloat(),NoteKind.TAP)}+
+   listOf(PlayNote(1000L,4.5f,NoteKind.TAP),PlayNote(1000L,3.5f,NoteKind.TAP))
+  val plan=GestureBatcher.plan(notes)
+  assertEquals(11,plan.batches.sumOf{it.notes.size})
+  assertTrue(plan.batches.all{it.notes.size<=10})
+ }
 }
