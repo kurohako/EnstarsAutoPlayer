@@ -16,6 +16,7 @@ class AutoPlayService:AccessibilityService() {
  private lateinit var config:GameConfig
  private lateinit var detector:NoteDetector
  private var lastTap=LongArray(0)
+ private val pending = mutableListOf<Runnable>()
  override fun onServiceConnected(){super.onServiceConnected();instance=this}
  override fun onAccessibilityEvent(event:AccessibilityEvent?)=Unit
  override fun onInterrupt(){stop()}
@@ -25,7 +26,7 @@ class AutoPlayService:AccessibilityService() {
   config=GameConfig.load(this);detector=NoteDetector(config)
   lastTap=LongArray(config.laneXs.size);running=true;handler.post(::capture)
  }
- fun stop(){running=false;handler.removeCallbacksAndMessages(null)}
+ fun stop(){running=false;handler.removeCallbacksAndMessages(null);pending.clear()}
  private fun capture(){
   if(!running)return
   if(busy){schedule();return}
@@ -48,15 +49,23 @@ class AutoPlayService:AccessibilityService() {
  }
  private fun process(bitmap:Bitmap){
   val now=SystemClock.uptimeMillis()
-  val lanes=detector.detect(bitmap).filter{now-lastTap[it]>=config.cooldownMs}
-  if(lanes.isEmpty())return
-  val gesture=GestureDescription.Builder()
-  lanes.forEach{lane->
-   val path=Path().apply{moveTo(config.laneXs[lane]*bitmap.width,config.hitY*bitmap.height)}
-   gesture.addStroke(GestureDescription.StrokeDescription(path,0,45))
-   lastTap[lane]=now
+  val hits=detector.detect(bitmap,now)
+  if(hits.isEmpty())return
+  // Schedule using a monotonic clock. Dispatch is still subject to Android latency.
+  hits.groupBy { it.delayMs / 16L }.forEach { (_, group) ->
+   val delay=group.minOf { it.delayMs }.coerceAtLeast(0)
+   handler.postDelayed({
+    if(!running)return@postDelayed
+    val gesture=GestureDescription.Builder()
+    group.forEach { hit ->
+     val path=Path().apply {
+      moveTo(config.laneXs[hit.lane]*bitmap.width,config.hitY*bitmap.height)
+     }
+     gesture.addStroke(GestureDescription.StrokeDescription(path,0,45))
+    }
+    try { dispatchGesture(gesture.build(),null,null) } catch(_:Exception) {}
+   },delay)
   }
-  dispatchGesture(gesture.build(),null,null)
  }
  private fun schedule(){if(running)handler.postDelayed(::capture,config.pollMs)}
 }
