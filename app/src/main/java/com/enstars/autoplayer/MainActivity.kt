@@ -21,7 +21,7 @@ class MainActivity:Activity(){
    root.addView(this,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   }
   fun button(s:String,action:()->Unit)=root.addView(Button(this).apply{text=s;setOnClickListener{action()}})
-  label("Enstars AutoPlayer V1 (experimental)")
+  label("Enstars AutoPlayer V2.3 - One-shot calibration")
   label("Lane X positions (0..1, comma separated)")
   val xs=field(prefs.getString("xs",GameConfig().laneXs.joinToString(","))!!)
   label("Legacy Y setting (curved 9-lane targets are used)")
@@ -40,13 +40,13 @@ class MainActivity:Activity(){
    }
   }
   button("Open Accessibility Settings"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
-  button("Start"){
+  button("Start / Wait for Live"){
    val service=AutoPlayService.instance
    if(service==null)Toast.makeText(this,"Enable accessibility service first",Toast.LENGTH_LONG).show()
    else{service.start();Toast.makeText(this,"Started",Toast.LENGTH_SHORT).show()}
   }
-  button("Stop"){AutoPlayService.instance?.stop()}
-  label("Experimental: no floating stop button. Return here to stop or disable the accessibility service.")
+  button("Recalibrate 9 points"){\n   val service=AutoPlayService.instance\n   if(service==null)Toast.makeText(this,"Enable accessibility service first",Toast.LENGTH_LONG).show()\n   else{service.restartCalibration();Toast.makeText(this,"Waiting for 9 judgment points",Toast.LENGTH_SHORT).show()}\n  }\n  button("Stop"){AutoPlayService.instance?.stop()}
+  label("Calibration locks once per session. Recalibrate only using the button above. Debug-only: no automatic taps.")
   setContentView(root)
  }
 }
