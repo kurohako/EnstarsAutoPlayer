@@ -50,7 +50,7 @@ class MainActivity:Activity(){
    return s
   }
 
-  label("Enstars AutoPlayer V3.6 - Tap / Flick / Hold / Slide")
+  label("Enstars AutoPlayer V3.7 - Slow Video Refinement")
   val sessionText=TextView(this).apply{textSize=14f}
   root.addView(sessionText)
   fun refreshSessionInfo(){
@@ -75,21 +75,29 @@ class MainActivity:Activity(){
   root.addView(chartInfo)
   val chartSettings=getSharedPreferences("chart",MODE_PRIVATE)
   val flickCheck=CheckBox(this).apply{
-   text="Enable experimental video Flicks (42 left / 24 right)"
+   text="Enable experimental video Flicks (42 left / 31 right when refined)"
    isChecked=chartSettings.getBoolean("enableVideoFlicks",true)
    setOnCheckedChangeListener{_,checked->
     chartSettings.edit().putBoolean("enableVideoFlicks",checked).apply()
    }
   }
   root.addView(flickCheck)
-  button("USE BUILT-IN VIDEO CHART (508 TAP + Flick candidates)"){
+  val slowCheck=CheckBox(this).apply{
+   text="Use slow-video refinements: +42 TAP, +7 right Flick, timing fixes"
+   isChecked=chartSettings.getBoolean("useSlowRefinement",true)
+   setOnCheckedChangeListener{_,enabled->
+    chartSettings.edit().putBoolean("useSlowRefinement",enabled).apply()
+   }
+  }
+  root.addView(slowCheck)
+  button("USE BUILT-IN VIDEO CHART (ORIGINAL / REFINED)"){
    try{
-    val raw=BundledVideoChart.asJson(flickCheck.isChecked)
+    val raw=BundledVideoChart.asJson(flickCheck.isChecked,slowCheck.isChecked)
     val chart=ChartParser.parse(raw)
     chartSettings.edit().putString("chartText",raw).apply()
     chartInfo.text="BUNDLED: "+chart.counts+" | unsupported "+chart.skipped+
       " (hold lengths unavailable)"
-    Toast.makeText(this,"Built-in V3.6 chart selected",Toast.LENGTH_LONG).show()
+    Toast.makeText(this,"Chart: "+(if(slowCheck.isChecked)"slow-video refined" else "original"),Toast.LENGTH_LONG).show()
    }catch(e:Exception){chartInfo.text="Bundled chart error: "+e.message}
   }
   button("Import chart (.txt or video .json)"){
@@ -105,7 +113,7 @@ class MainActivity:Activity(){
     chartInfo.text="Saved: "+chart.difficulty+" | "+chart.counts+" | skipped "+chart.skipped
    }catch(_:Exception){}
   }
-  label("V3.6: Flick guesses are experimental. For full Hold/Slide support import a typed .json or esmchartplayer .txt with start/end times; orange color alone cannot establish hold duration.")
+  label("Slow refinement is experimental. Toggle it off to compare the original V3.6 chart. HOLD/SLIDE still require verified start/end times; orange edges alone cannot determine duration.")
   label("SYNC circle appears ON the first note target. Touch the circle when the note reaches judgment, and release; sync starts automatically.")
   val syncOffset=EditText(this).apply{
    inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
