@@ -30,7 +30,7 @@ class MainActivity:Activity(){
   }catch(e:Exception){chartInfo.text="Chart import failed: "+e.message}
  }
 
- override fun onCreate(savedInstanceState:Bundle?){
+ override fun onResume(){super.onResume();AutoPlayService.instance?.stop()}\n override fun onCreate(savedInstanceState:Bundle?){
   super.onCreate(savedInstanceState)
   val root=LinearLayout(this).apply{
    orientation=LinearLayout.VERTICAL
