@@ -96,4 +96,32 @@ _1+0/4@O1
   assertEquals(1,plan.overflow)
   assertTrue(plan.batches.all{it.notes.size<=10})
  }
+ @Test fun pairedHoldAndSlideMarkersFromSlowVideo(){
+  val chart=ChartParser.parse("""{"format":"enstars-video-v2","notes":[
+   {"type":"hold_start","holdId":"a","timeMs":1000,"lane":3,"confidence":"high"},
+   {"type":"hold_end","holdId":"a","timeMs":2400,"lane":3},
+   {"type":"slide_start","holdId":"b","timeMs":1200,"lane":5,"confidence":"high",
+    "path":[{"timeMs":1500,"lane":6},{"timeMs":1900,"lane":7}]},
+   {"type":"slide_end","holdId":"b","timeMs":2200,"lane":8,"release":"flick_right"},
+   {"type":"tap","timeMs":1550,"lane":2,"confidence":"high"}
+  ]}""")
+  assertEquals(3,chart.events.size)
+  val hold=chart.events.first{it.kind==NoteKind.HOLD}
+  assertEquals(2400L,hold.endTimeMs)
+  val slide=chart.events.first{it.kind==NoteKind.SLIDE}
+  assertEquals(3,slide.path.size)
+  assertEquals(NoteKind.FLICK_RIGHT,slide.releaseKind)
+  val plan=GestureBatcher.plan(chart.events)
+  assertEquals(0,plan.overflow)
+  assertTrue(plan.batches.any{batch->batch.strokes.any{it.note.kind==NoteKind.TAP} &&
+   batch.strokes.any{it.note.kind.isSustained}})
+ }
+ @Test fun ambiguousSlideIsSkippedRatherThanPressedWrong(){
+  val chart=ChartParser.parse("""{"format":"enstars-video-v2","notes":[
+   {"type":"slide_start","holdId":"x","timeMs":1000,"lane":2,"confidence":"high"},
+   {"type":"slide_end","holdId":"x","timeMs":1800,"lane":7}
+  ]}""")
+  assertEquals(0,chart.events.size)
+  assertEquals(1,chart.skipped)
+ }
 }
