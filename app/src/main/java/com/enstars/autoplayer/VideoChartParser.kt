@@ -82,8 +82,21 @@ object VideoChartParser {
   skipped+=holdEnds.keys.count{it !in holdStarts}
   val unique=result.distinctBy{listOf(it.timeMs,it.lane,it.kind,it.endTimeMs)}
    .sortedWith(compareBy<PlayNote>{it.timeMs}.thenBy{it.lane})
+  // Two video detectors may report the same blue circle a frame apart.
+  // Remove only near-identical TAP candidates on the same lane.
+  val deduplicated=mutableListOf<PlayNote>()
+  for(note in unique){
+   if(note.kind==NoteKind.TAP && deduplicated.any{
+     it.kind==NoteKind.TAP && it.lane==note.lane &&
+      kotlin.math.abs(it.timeMs-note.timeMs)<=25L
+    }){
+    skipped++
+    continue
+   }
+   deduplicated.add(note)
+  }
   return ChartParser.Chart(
    if(format=="enstars-video-v2")"VIDEO V2 (typed)" else "VIDEO V1 (candidates)",
-   unique,skipped)
+   deduplicated,skipped)
  }
 }
