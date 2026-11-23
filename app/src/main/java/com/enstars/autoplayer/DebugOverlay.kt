@@ -6,8 +6,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
-import android.os.SystemClock
 import android.view.Gravity
+import android.view.InputDevice
+import android.view.KeyCharacterMap
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -22,12 +23,15 @@ class DebugOverlay(private val context:Context){
  private val wm=context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
  private val view=OverlayView(context)
  private var attached=false
+ private var lastViewport:CalibratedViewport?=null
  private var editing=false
  private var onSave:(()->Unit)?=null
  private val handles=mutableListOf<View>()
  private var saveButton:TextView?=null
  private var syncButton:TextView?=null
+ private var syncAdded=false
  private var syncLane:Float?=null
+ private var syncTouchable=false
  private val floatingButtons=mutableListOf<View>()
  private val density=context.resources.displayMetrics.density
  private val handleSize=(54*density).roundToInt()
@@ -36,13 +40,24 @@ class DebugOverlay(private val context:Context){
  private fun params(w:Int,h:Int,x:Int,y:Int,touchable:Boolean)=
   WindowManager.LayoutParams(w,h,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
    windowFlags or (if(touchable)0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
-   PixelFormat.TRANSLUCENT).apply{gravity=Gravity.TOP or Gravity.START;this.x=x;this.y=y}
+   PixelFormat.TRANSLUCENT).apply{gravity=Gravity.TOP or Gravity.LEFT;this.x=x;this.y=y}
+ private fun markerParams(size:Int,lane:Float,bounds:CalibratedViewport,touchable:Boolean=true):WindowManager.LayoutParams{
+  val (x,y)=bounds.point(lane,view.xs,view.ys)
+  return params(size,size,(x-size/2f).roundToInt(),(y-size/2f).roundToInt(),touchable).apply{
+   // These small windows use display coordinates, including when centered at a viewport edge.
+   setFitInsetsTypes(0)
+   layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+   flags=flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+  }
+ }
  fun show(){
   if(attached)return
   wm.addView(view,params(-1,-1,0,0,false));attached=true
  }
  fun showFixed(config:GameConfig){
   removeControls()
+  clearSyncTarget()
+  clearPlayerControls()
   editing=false
   view.xs=config.laneXs.toMutableList()
   view.ys=config.laneYs.toMutableList()
@@ -60,7 +75,7 @@ class DebugOverlay(private val context:Context){
  }
  private fun installControls(){
   removeControls()
-  if(view.width==0||view.height==0)return
+  val bounds=touchViewport()?:return
   for(i in 0..8){
    val handle=object:View(context){
     private val marker=Paint(Paint.ANTI_ALIAS_FLAG)
@@ -81,7 +96,6 @@ class DebugOverlay(private val context:Context){
      canvas.drawText("${i+1}",center,center+6*density,marker)
     }
    }
-   val (x,y)=view.screenPoint(i)
    var startX=0f;var startY=0f
    var moved=false
    handle.setOnTouchListener{_,event->
@@ -94,7 +108,7 @@ class DebugOverlay(private val context:Context){
       if(!moved && (dx*dx+dy*dy)>=(8*density)*(8*density))moved=true
       if(moved){
        val p=view.screenPoint(i)
-       view.store(i,p.first+dx,p.second+dy)
+       view.store(i,p.x+dx,p.y+dy)
        startX=event.rawX;startY=event.rawY
        positionHandle(i)
        view.invalidate()
@@ -106,7 +120,7 @@ class DebugOverlay(private val context:Context){
     }
    }
    handles.add(handle)
-   wm.addView(handle,params(handleSize,handleSize,(x-handleSize/2).roundToInt(),(y-handleSize/2).roundToInt(),true))
+   wm.addView(handle,markerParams(handleSize,i.toFloat(),bounds))
   }
   val button=TextView(context).apply{
    text="SAVE"
@@ -122,11 +136,8 @@ class DebugOverlay(private val context:Context){
  }
  private fun positionHandle(i:Int){
   if(i !in handles.indices)return
-  val p=view.screenPoint(i)
-  val lp=handles[i].layoutParams as WindowManager.LayoutParams
-  lp.x=(p.first-handleSize/2).roundToInt()
-  lp.y=(p.second-handleSize/2).roundToInt()
-  wm.updateViewLayout(handles[i],lp)
+  val bounds=touchViewport()?:return
+  wm.updateViewLayout(handles[i],markerParams(handleSize,i.toFloat(),bounds))
  }
  private fun removeControls(){
   for(handle in handles)wm.removeView(handle)
@@ -143,31 +154,58 @@ class DebugOverlay(private val context:Context){
   view.invalidate()
   onSave?.invoke()
  }
- fun showPlayerControls(onStart:()->Unit,onStop:()->Unit){
+ fun showPlayerControls(
+  onStart:(()->Unit)?,onStop:()->Unit,startText:String="START",onOutsideTap:((Long)->Unit)?=null
+ ){
   show()
   view.showTargets=false
   view.invalidate()
   clearPlayerControls()
-  val items=listOf("START" to onStart,"HOLD STOP" to onStop)
-  for((index,item) in items.withIndex()){
-   val button=TextView(context).apply{
+  val items=listOfNotNull(onStart?.let{startText to it},"HOLD STOP" to onStop)
+  for(item in items){
+   val start=item.first==startText
+   val outsideTap=if(start)null else onOutsideTap
+   val button=object:TextView(context){
+    override fun dispatchTouchEvent(event:MotionEvent):Boolean{
+     if(outsideTap!=null&&event.actionMasked==MotionEvent.ACTION_OUTSIDE&&
+      event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)&&event.deviceId!=KeyCharacterMap.VIRTUAL_KEYBOARD){
+      // The game receives the original DOWN. Outside events from another app omit coordinates.
+      val downAt=event.eventTime
+      post{if(this in floatingButtons)outsideTap(downAt)}
+      return true
+     }
+     return super.dispatchTouchEvent(event)
+    }
+   }.apply{
     text=item.first
     textSize=12f
     gravity=Gravity.CENTER
     setTextColor(Color.WHITE)
-    setBackgroundColor(if(index==0)0xDD187C35.toInt() else 0xDDB32626.toInt())
-    if(index==0){
+    setBackgroundColor(if(start)0xDD187C35.toInt() else 0xDDB32626.toInt())
+    if(start){
      setOnClickListener{item.second.invoke()}
     }else{
-     // An injected chart tap lasts ~24ms and must NEVER stop playback.
-     // Physical long press is required to stop.
+     setOnTouchListener{_,event->event.deviceId==KeyCharacterMap.VIRTUAL_KEYBOARD}
      isLongClickable=true
      setOnLongClickListener{item.second.invoke();true}
     }
    }
    floatingButtons.add(button)
-   wm.addView(button,params(((if(index==0)78 else 105)*density).roundToInt(),(42*density).roundToInt(),
-    (12*density).roundToInt(),((115+index*48)*density).roundToInt(),true))
+   val width=((if(start)78 else 105)*density).roundToInt()
+   val margin=(12*density).roundToInt()
+   var x=margin
+   val lane=syncLane
+   val bounds=touchViewport()
+   if(outsideTap!=null&&bounds!=null&&lane!=null){
+    val target=bounds.point(lane,view.xs,view.ys)
+    if(target.x<bounds.left+bounds.width/2f)x=(bounds.width-width-margin).coerceAtLeast(margin)
+   }
+   val layout=params(width,(42*density).roundToInt(),x,((if(start)115 else 163)*density).roundToInt(),true)
+   if(outsideTap!=null){
+    layout.flags=layout.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+   }
+   wm.addView(button,layout)
   }
  }
  private fun clearPlayerControls(){
@@ -175,35 +213,49 @@ class DebugOverlay(private val context:Context){
   floatingButtons.clear()
  }
  private fun clearSyncTarget(){
-  syncButton?.let{wm.removeView(it)}
+  if(syncAdded)syncButton?.let{wm.removeViewImmediate(it)}
+  syncAdded=false
   syncButton=null
   syncLane=null
  }
  private fun placeSyncTarget(){
   val button=syncButton?:return
   val lane=syncLane?:return
-  if(!attached||view.width<1||view.height<1)return
-  val (x,y)=view.screenPointLane(lane)
-  val p=button.layoutParams as WindowManager.LayoutParams
+  val bounds=touchViewport()?:return
   val size=(60*density).roundToInt()
-  p.width=size;p.height=size
-  p.x=(x-size/2).roundToInt();p.y=(y-size/2).roundToInt()
-  wm.updateViewLayout(button,p)
+  val p=markerParams(size,lane,bounds,syncTouchable)
+  if(syncAdded)wm.updateViewLayout(button,p)
+  else{
+   wm.addView(button,p)
+   syncAdded=true
+  }
  }
- /**
-  * The only touchable sync window is centered over the calibrated first note.
-  * Finger-down time anchors the song clock; releasing removes the button
-  * before AccessibilityService injects the note gesture.
-  */
- fun showSyncAtLane(lane:Float,onSync:(Long)->Unit){
+ fun showManualSyncAtLane(lane:Float,onStop:()->Unit,onArmed:()->Unit,onSync:(Long)->Unit){
+  installSyncTarget(lane,onSync=null)
+  updateStatus("IN LIVE, PRESS ARM SYNC")
+  showPlayerControls(onStart={
+   updateStatus("ARMED - MANUALLY TAP FIRST NOTE")
+   showPlayerControls(onStart=null,onStop=onStop,onOutsideTap={downAt->
+    clearSyncTarget()
+    showPlayerControls(onStart=null,onStop=onStop)
+    onSync(downAt)
+   })
+   onArmed()
+  },onStop=onStop,startText="ARM SYNC")
+ }
+
+ fun showSyncAtLane(lane:Float,onSync:(Long)->Unit)=installSyncTarget(lane,onSync)
+
+ private fun installSyncTarget(lane:Float,onSync:((Long)->Unit)?){
   show()
   clearSyncTarget()
   view.showTargets=false
   view.invalidate()
   syncLane=lane.coerceIn(0f,8f)
-  var triggered=false
+  syncTouchable=onSync!=null
+  val tap=SyncTap()
   val button=TextView(context).apply{
-   text="SYNC"
+   text=if(onSync==null)"TAP" else "SYNC"
    textSize=11f
    gravity=Gravity.CENTER
    setTextColor(Color.WHITE)
@@ -212,47 +264,39 @@ class DebugOverlay(private val context:Context){
     setColor(0xAA047C91.toInt())
     setStroke((3*density).roundToInt(),Color.CYAN)
    }
-   setOnTouchListener{_,e->
+   if(onSync!=null)setOnTouchListener{_,e->
     when(e.actionMasked){
-     MotionEvent.ACTION_DOWN->{
-      if(!triggered){
-       triggered=true
-       val fingerDownAt=SystemClock.uptimeMillis()
-       // Remove overlay before dispatching an injected gesture. We deliberately
-       // do NOT wait for ACTION_UP: that added a full finger-press duration to
-       // the first note while the game never saw the original touch.
+     MotionEvent.ACTION_DOWN->tap.press()
+     MotionEvent.ACTION_CANCEL,MotionEvent.ACTION_POINTER_DOWN->tap.cancel()
+     MotionEvent.ACTION_UP->{
+      if(e.x<0f||e.x>=width||e.y<0f||e.y>=height)tap.cancel()
+      tap.release(e.eventTime)?.let{releasedAt->
+       // Acknowledge ACTION_UP before detaching the window or injecting.
        post {
         if(syncButton===this){
          clearSyncTarget()
-         onSync(fingerDownAt)
+         onSync(releasedAt)
         }
        }
       }
-      true
      }
-     MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->true
-     else->true
     }
+    true
    }
   }
   syncButton=button
-  val size=(60*density).roundToInt()
-  val (x,y)=view.screenPointLane(syncLane!!)
-  wm.addView(button,params(size,size,(x-size/2).roundToInt(),(y-size/2).roundToInt(),true))
-  view.post{placeSyncTarget()}
+  placeSyncTarget()
  }
- /** Use precisely the same overlay dimensions for SYNC and injected gestures.
-  * DisplayMetrics can exclude an inset or contain stale orientation dimensions.
-  */
- fun touchViewport():Pair<Int,Int>{
-  val w=view.width.takeIf{it>0}?:context.resources.displayMetrics.widthPixels
-  val h=view.height.takeIf{it>0}?:context.resources.displayMetrics.heightPixels
-  return Pair(w,h)
+ fun touchViewport():CalibratedViewport?{
+  if(!attached||view.width<1||view.height<1)return null
+  val origin=IntArray(2)
+  view.getLocationOnScreen(origin)
+  return CalibratedViewport(view.width,view.height,origin[0],origin[1])
  }
- fun syncTargetCenter(lane:Float):Pair<Float,Float> = view.screenPointLane(lane)
  fun updateStatus(status:String){view.status=status;view.invalidate()}
  fun close(){
   editing=false
+  lastViewport=null
   removeControls()
   clearSyncTarget()
   clearPlayerControls()
@@ -264,37 +308,30 @@ class DebugOverlay(private val context:Context){
   var status="FIXED"
   var showTargets=true
   private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
-  override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){
-   super.onSizeChanged(w,h,oldw,oldh)
-   post{placeSyncTarget()}
-  }
-  fun screenPointLane(lane:Float):Pair<Float,Float>{
-   val lo=kotlin.math.floor(lane).toInt().coerceIn(0,8)
-   val hi=(lo+1).coerceAtMost(8)
-   val t=(lane-lo).coerceIn(0f,1f)
-   val px=xs[lo]*(1-t)+xs[hi]*t
-   val py=ys[lo]*(1-t)+ys[hi]*t
-   return if(width>=height)Pair(px*width,py*height)
-    else Pair(py*width,(1f-px)*height)
-  }
-  fun screenPoint(i:Int):Pair<Float,Float> =
-   if(width>=height)Pair(xs[i]*width,ys[i]*height)
-   else Pair(ys[i]*width,(1f-xs[i])*height)
-  fun store(i:Int,x:Float,y:Float){
-   if(width>=height){
-    xs[i]=(x/width).coerceIn(0f,1f)
-    ys[i]=(y/height).coerceIn(0f,1f)
-   }else{
-    xs[i]=(1f-y/height).coerceIn(0f,1f)
-    ys[i]=(x/width).coerceIn(0f,1f)
+  override fun onLayout(changed:Boolean,left:Int,top:Int,right:Int,bottom:Int){
+   super.onLayout(changed,left,top,right,bottom)
+   post{
+    val bounds=touchViewport()
+    if(bounds!=lastViewport){
+     lastViewport=bounds
+     if(editing&&attached)installControls()
+     placeSyncTarget()
+    }
    }
+  }
+  fun screenPoint(i:Int)=CalibratedViewport(width,height).point(i.toFloat(),xs,ys)
+  fun store(i:Int,x:Float,y:Float){
+   val normalized=CalibratedViewport(width,height).normalized(TouchPoint(x,y))
+   xs[i]=normalized.x
+   ys[i]=normalized.y
   }
   override fun onDraw(canvas:Canvas){
    paint.style=Paint.Style.FILL
    paint.color=0xCC101820.toInt()
-   canvas.drawRoundRect(5*density,5*density,230*density,44*density,8*density,8*density,paint)
-   paint.color=Color.WHITE
    paint.textSize=13*density
+   val right=(paint.measureText(status)+24*density).coerceAtMost(width-5*density)
+   canvas.drawRoundRect(5*density,5*density,right,44*density,8*density,8*density,paint)
+   paint.color=Color.WHITE
    canvas.drawText(status,12*density,29*density,paint)
    if(showTargets)for(i in 0..8){
     val (x,y)=screenPoint(i)
