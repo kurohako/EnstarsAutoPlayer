@@ -123,4 +123,25 @@ _1+0/4@O1
   assertEquals(2,chart.events.size)
   assertEquals(1,chart.skipped)
  }
+ @Test fun pairedMovingSlideKeepsWaypointsAndFlickRelease(){
+  val chart=ChartParser.parse("""{"format":"enstars-video-v2","notes":[
+   {"type":"hold_start","holdId":"slideA","timeMs":1000,"lane":2,
+    "confidence":"high","path":[{"timeMs":1300,"lane":3},{"timeMs":1700,"lane":5}]},
+   {"type":"hold_end","holdId":"slideA","timeMs":2200,"lane":7,"release":"flick_right","confidence":"high"}
+  ]}""")
+  assertEquals(1,chart.events.size)
+  val note=chart.events.single()
+  assertEquals(NoteKind.SLIDE,note.kind)
+  assertEquals(3,note.path.size)
+  assertEquals(2200L,note.endTimeMs)
+  assertEquals(NoteKind.FLICK_RIGHT,note.releaseKind)
+ }
+ @Test fun movingHoldWithoutVerifiedPathIsRejected(){
+  val chart=ChartParser.parse("""{"format":"enstars-video-v2","notes":[
+   {"type":"hold_start","holdId":"slideB","timeMs":1000,"lane":2,"confidence":"high"},
+   {"type":"hold_end","holdId":"slideB","timeMs":2200,"lane":7,"confidence":"high"}
+  ]}""")
+  assertEquals(0,chart.events.size)
+  assertEquals(1,chart.skipped)
+ }
 }
