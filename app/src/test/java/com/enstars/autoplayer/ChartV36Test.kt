@@ -93,4 +93,34 @@ _1+0/4@O1
   assertEquals(1,plan.overflow)
   assertTrue(plan.batches.all{it.notes.size<=10})
  }
+ @Test fun videoHoldMarkersBecomeTimedHold(){
+  val chart=ChartParser.parse("""{"format":"enstars-video-v2","notes":[
+   {"type":"hold_start","holdId":"a","timeMs":1000,"lane":3,"confidence":"high"},
+   {"type":"tap","timeMs":1250,"lane":6,"confidence":"high"},
+   {"type":"hold_end","holdId":"a","timeMs":2400,"lane":3,"confidence":"high"}
+  ]}""")
+  assertEquals(2,chart.events.size)
+  val hold=chart.events.first{it.kind==NoteKind.HOLD}
+  assertEquals(1000L,hold.timeMs)
+  assertEquals(2400L,hold.endTimeMs)
+  val plan=GestureBatcher.plan(chart.events)
+  assertEquals(1,plan.batches.size)
+  assertEquals(2,plan.batches[0].notes.size)
+ }
+ @Test fun unmatchedHoldEndIsSkipped(){
+  val chart=ChartParser.parse("""{"format":"enstars-video-v2","notes":[
+   {"type":"hold_end","holdId":"missing","timeMs":3000,"lane":2,"confidence":"high"}
+  ]}""")
+  assertEquals(0,chart.events.size)
+  assertEquals(1,chart.skipped)
+ }
+ @Test fun nearDuplicateBlueTapCandidatesDoNotDoubleTap(){
+  val chart=ChartParser.parse("""{"format":"enstars-video-v2","notes":[
+   {"type":"tap","timeMs":1000,"lane":4,"confidence":"high"},
+   {"type":"tap","timeMs":1016,"lane":4,"confidence":"medium"},
+   {"type":"tap","timeMs":1060,"lane":4,"confidence":"high"}
+  ]}""")
+  assertEquals(2,chart.events.size)
+  assertEquals(1,chart.skipped)
+ }
 }
