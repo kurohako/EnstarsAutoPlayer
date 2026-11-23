@@ -16,19 +16,36 @@ import android.widget.Toast
 
 class MainActivity:Activity(){
  private val chartRequest=451
+ private val supplementRequest=452
  private lateinit var chartInfo:TextView
  override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){
   super.onActivityResult(requestCode,resultCode,data)
-  if(requestCode!=chartRequest||resultCode!=RESULT_OK)return
+  if(requestCode !in listOf(chartRequest,supplementRequest)||resultCode!=RESULT_OK)return
   val uri=data?.data?:return
+  val settings=getSharedPreferences("chart",MODE_PRIVATE)
+  val adding=requestCode==supplementRequest
   try{
    val raw=contentResolver.openInputStream(uri)?.bufferedReader()?.use{it.readText()}
     ?:throw IllegalStateException("Empty chart")
-   val chart=ChartParser.parse(raw)
+   val active=if(adding){
+    val prior=settings.getString("chartText",null)
+     ?:throw IllegalArgumentException("Select a built-in chart first")
+    BundledChartSupplement.apply(prior,raw)
+   }else raw
+   val chart=ChartParser.parse(active)
    if(chart.events.isEmpty())throw IllegalArgumentException("No supported gestures found")
-   getSharedPreferences("chart",MODE_PRIVATE).edit().putString("chartText",raw).apply()
-   chartInfo.text="Imported: "+chart.difficulty+" | "+chart.counts+" | skipped "+chart.skipped+" | first "+chart.events.first().timeMs+" ms"
+   settings.edit().putString("chartText",active).apply()
+   val label=if(adding)"Built-in with additions" else "Imported"
+   chartInfo.text="$label: ${chart.counts} | skipped ${chart.skipped} | first ${chart.events.first().timeMs} ms"
   }catch(e:Exception){chartInfo.text="Chart import failed: "+e.message}
+ }
+
+ private fun openChartFile(request:Int){
+  startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
+   addCategory(Intent.CATEGORY_OPENABLE)
+   type="*/*"
+   putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("application/json","text/plain","application/octet-stream"))
+  },request)
  }
 
  override fun onResume(){super.onResume();AutoPlayService.instance?.hideWhenIdle()}
@@ -107,20 +124,15 @@ class MainActivity:Activity(){
     Toast.makeText(this,"Chart: "+(if(slowCheck.isChecked)"slow-video refined" else "original"),Toast.LENGTH_LONG).show()
    }catch(e:Exception){chartInfo.text="Bundled chart error: "+e.message}
   }
-  button("Import chart (.txt or video .json)"){
-   startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
-    addCategory(Intent.CATEGORY_OPENABLE)
-    type="*/*"
-    putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("application/json","text/plain","application/octet-stream"))
-   },chartRequest)
-  }
+  button("ADD TIMED NOTES TO BUILT-IN (.JSON)"){openChartFile(supplementRequest)}
+  button("Import full chart (.txt or .json)"){openChartFile(chartRequest)}
   getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)?.let{
    try{
     val chart=ChartParser.parse(it)
     chartInfo.text="Saved: "+chart.difficulty+" | "+chart.counts+" | skipped "+chart.skipped
    }catch(_:Exception){}
   }
-  label("Slow refinement is experimental. Toggle it off to compare the original V3.6 chart. HOLD/SLIDE still require verified start/end times; orange edges alone cannot determine duration.")
+  label("The built-in chart is partial. A timed JSON supplement can add missing Tap notes and Hold or Slide with known start and end times.")
   label("For a single opening Tap, press ARM SYNC in Live, then hit the marked note yourself. The first game touch after arming sets the chart clock.")
   label("For other openings, lift your finger from the SYNC ring as the first note reaches the target.")
   val syncOffset=EditText(this).apply{

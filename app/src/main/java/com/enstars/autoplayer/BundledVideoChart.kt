@@ -11,6 +11,7 @@ import org.json.JSONArray
  * Payload is zlib-compressed records: [big-endian timeMs(4), lane1to9(1), confidence(1)].
  */
 object BundledVideoChart {
+ internal const val SOURCE_VIDEO = "1000029417.mp4"
  private const val PAYLOAD = "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"
  // Direction evidence: pink circular arrows consistently point left in sampled
  // source frames; orange glyphs below were checked by right-arrow outline.
@@ -87,7 +88,7 @@ object BundledVideoChart {
    }
   }
   return JSONObject().put("format","enstars-video-v2")
-   .put("sourceVideo","1000029417.mp4")
+   .put("sourceVideo",SOURCE_VIDEO)
    .put("referenceVideo",if(useSlowRefinement)"1000029428.mp4" else "none")
    .put("slowRefinement",useSlowRefinement)
    .put("referenceAlignmentMs",if(useSlowRefinement)3500 else 0)

@@ -22,12 +22,14 @@ object GestureBatcher {
   val notes: List<PlayNote> get() = strokes.map { it.note }
  }
  data class Plan(val batches: List<Batch>, val overflow: Int, val total: Int)
- private data class Track(val id: Int, val note: PlayNote, val segments: List<Segment>)
+ private data class Track(val id: Int, val note: PlayNote, var segments: List<Segment>)
  private data class ActiveSegment(val track: Track, val index: Int) {
   val segment get() = track.segments[index]
   val hasNext get() = index + 1 < track.segments.size
  }
- private data class Pointer(val endMs: Long, val id: Int)
+ private data class Pointer(val track: Track, val id: Int) {
+  fun canLiftTapAt(timeMs: Long) = track.note.kind == NoteKind.TAP && track.note.timeMs < timeMs
+ }
 
  fun plan(events: List<PlayNote>, isolateFirstChord: Boolean = false): Plan {
   val sorted = events.filter {
@@ -35,9 +37,11 @@ object GestureBatcher {
     (!it.kind.isSustained || it.endTimeMs in (it.timeMs + 1)..Long.MAX_VALUE - MAX_BATCH_MS)
   }.distinctBy { it.copy(confidence = "") }
    .sortedWith(compareBy<PlayNote> { it.timeMs }.thenByDescending { it.kind.isSustained }.thenBy { it.lane })
-  val nextHead = sorted.map { it.timeMs }.distinct().zipWithNext().toMap()
+  val nextHeadOnLane = sorted.groupBy { it.lane }.mapValues { (_, notes) ->
+   notes.map { it.timeMs }.distinct().zipWithNext().toMap()
+  }
   val tracks = sorted.mapIndexed { id, note ->
-   Track(id, note, segments(note, nextHead[note.timeMs]))
+   Track(id, note, segments(note, nextHeadOnLane.getValue(note.lane)[note.timeMs]))
   }
 
   // In Android 16 the injector keeps used pointer IDs until the last pointer goes up.
@@ -45,16 +49,21 @@ object GestureBatcher {
   val pointers = mutableListOf<Pointer>()
   var nextPointerId = 0
   val playable = tracks.filter { track ->
-   pointers.removeAll { it.endMs <= track.note.timeMs }
-   if (pointers.isEmpty()) nextPointerId = 0
-   val id = nextPointerId.coerceAtMost(MAX_STROKES)
-   if (pointers.size == MAX_STROKES || pointers.any { it.id == id }) {
-    false
-   } else {
-    pointers.add(Pointer(track.segments.last().endMs, id))
-    nextPointerId++
-    true
+   val time = track.note.timeMs
+   pointers.removeAll { it.track.segments.last().endMs <= time }
+   val reused = pointers.firstOrNull { it.id == MAX_STROKES }
+   if (reused != null || pointers.size == MAX_STROKES) {
+    val blocker = reused ?: pointers.firstOrNull { it.canLiftTapAt(time) }
+    if (blocker == null || !blocker.canLiftTapAt(time)) return@filter false
+    // Preserve other-lane tap duration unless a pointer must lift to admit the new head.
+    val tap = blocker.track.segments.single()
+    blocker.track.segments = listOf(tap.copy(endMs = maxOf(tap.startMs + 1L, time - 1L)))
+    pointers.remove(blocker)
    }
+   if (pointers.isEmpty()) nextPointerId = 0
+   pointers.add(Pointer(track, nextPointerId.coerceAtMost(MAX_STROKES)))
+   nextPointerId++
+   true
   }.sortedWith(compareBy<Track> { it.note.timeMs }.thenBy { it.note.lane })
 
   val batches = mutableListOf<Batch>()
@@ -116,12 +125,13 @@ object GestureBatcher {
   return Plan(batches, overflow, tracks.size)
  }
 
- private fun segments(note: PlayNote, nextHead: Long?): List<Segment> {
+ private fun segments(note: PlayNote, nextHeadOnLane: Long?): List<Segment> {
   val head = Position(note.lane)
   if (note.kind == NoteKind.TAP) {
    val naturalEnd = note.timeMs + TAP_MS
-   // Leave a separate down event for the next head, including rapid repeats of one lane.
-   val end = if (nextHead != null && nextHead <= naturalEnd) maxOf(note.timeMs + 1, nextHead - 1) else naturalEnd
+   val end = if (nextHeadOnLane != null && nextHeadOnLane <= naturalEnd) {
+    maxOf(note.timeMs + 1L, nextHeadOnLane - 1L)
+   } else naturalEnd
    return listOf(Segment(note.timeMs, end, head, head))
   }
   if (!note.kind.isSustained) {

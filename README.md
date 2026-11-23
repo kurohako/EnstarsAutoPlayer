@@ -3,6 +3,8 @@
 - For a chart that opens with a single Tap, press **ARM SYNC** once Live has started. Hit the marked first note in the game. The first game touch sets the chart clock, and playback starts with the following note.
 - For a chart that opens with a chord, Flick, Hold or Slide, lift your finger from the **SYNC** ring as the first note reaches its judgment point. In this mode the touch release sets the chart clock. The ring follows the saved calibration in both modes.
 - The timing offset shifts injected notes in both modes. The injected opening note or chord has its own batch. Batches wait for the previous gesture result and carry held pointers across Slide knots and Flick releases. After cancellation, the player reschedules future note heads once at their original deadlines.
+- Closely spaced taps on different lanes retain their normal 30 ms press when a pointer is available. Rapid same-lane repeats lift before the next press.
+- **ADD TIMED NOTES TO BUILT-IN (.JSON)** adds checked Tap and Hold timings directly to the active built-in chart. Hold presses stay down through the supplied end time.
 - Experimental live detection tracks multiple visible blue heads per lane. Android 16 limits accessibility screenshots to one request every 333 ms, so heads can still pass between frames. Imported charts supply the timing for offline playback.
 - **SHOW LAST STOP REASON** includes the first-note SYNC source, rescheduled notes, and dispatch latency. `MANUAL_TAP` indicates a game touch was observed. **HOLD STOP** ends playback.
 
@@ -55,6 +57,8 @@ The `examples/v3.6-typed-chart-EXAMPLE-ONLY.json` file is *demonstration data*, 
 - Optional `release`: `flick_left`, `flick_right`, `flick_up`, `flick_down`
 
 `esmchartplayer` text charts recognize O/S taps, L/R/U/D directional flicks and chained `=` timed hold knots, including nonjudgment turns. These source formats may express exceptional sequences this beta cannot reproduce.
+
+To supplement the built-in chart, select it first and use **ADD TIMED NOTES TO BUILT-IN (.JSON)** with an `enstars-video-v2` file. Use the built-in chart clock, whose opening Tap is at 6833 ms, when aligning the supplement. Each entry adds a note or replaces an existing candidate at the same time and lane. To move a candidate, set `replaceTimeMs` to its exact earlier timestamp on that lane and set `timeMs` to its checked timestamp. Provide `endTimeMs` for every Hold or Slide. Selecting the original or refined built-in chart again reloads its bundled data.
 
 ## Technical boundaries
 Android `AccessibilityService.dispatchGesture()` can cancel an active gesture when submitting an unrelated gesture. The planner respects the platform's 10-stroke limit per batch and reports overlaps that exceed the available touch pointers as `SKIP`. Gesture completion reports Android's injection result. Game judgments and input latency require a device test. Built-in video estimates may miss or misclassify notes. Hold and Slide endpoints require a complete typed chart or verified annotation.

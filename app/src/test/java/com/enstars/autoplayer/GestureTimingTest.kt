@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GestureTimingTest {
+ @Test fun twoCloseHeadsOnDifferentLanesKeepFullTapDuration() {
+  val notes = listOf(PlayNote(1000L, 2f, NoteKind.TAP), PlayNote(1016L, 6f, NoteKind.TAP))
+  val plan = GestureBatcher.plan(notes)
+  val strokes = plan.batches.single().strokes
+  assertEquals(notes.map { it.timeMs }, strokes.map { it.startMs })
+  assertTrue(strokes.all { it.endMs - it.startMs == GestureBatcher.TAP_MS })
+  assertValid(plan)
+ }
+
  @Test fun isolatingTheFirstChordPreservesAnOverlappingHold() {
   val hold = PlayNote(1000L, 2.5f, NoteKind.HOLD, 1150L)
   val tap = PlayNote(1030L, 6f, NoteKind.TAP)
@@ -21,7 +30,10 @@ class GestureTimingTest {
   val notes = List(24) { index -> PlayNote(1000L + index * 20, (index % 9).toFloat(), NoteKind.TAP) }
   val plan = GestureBatcher.plan(notes)
   assertEquals(0, plan.overflow)
-  assertEquals(notes, plan.batches.flatMap { it.notes })
+  val starts = plan.batches.flatMap { it.strokes }.filterNot { it.continuesFromPrevious }
+  assertEquals(notes, starts.map { it.note })
+  assertTrue(starts.any { it.segment.endMs - it.segment.startMs == GestureBatcher.TAP_MS })
+  assertTrue(starts.any { it.segment.endMs - it.segment.startMs < GestureBatcher.TAP_MS })
   assertTrue(plan.batches.size > 1)
   assertValid(plan)
  }
