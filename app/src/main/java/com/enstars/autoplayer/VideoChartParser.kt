@@ -76,8 +76,28 @@ object VideoChartParser {
    }
    val confidence=start.optString("confidence","unknown")
    if(confidence!="high"&&confidence!="medium"){skipped++;continue}
-   if(kotlin.math.abs(lane-endLane)>.1f){skipped++;continue}
-   result.add(PlayNote(begin,lane,NoteKind.HOLD,end,confidence=confidence))
+   val rawPath=start.optJSONArray("path")
+   val path=mutableListOf<ChartWaypoint>()
+   if(rawPath!=null){
+    for(j in 0 until rawPath.length()){
+     val point=rawPath.optJSONObject(j)?:continue
+     val pt=point.optLong("timeMs",-1L)
+     val pl=point.optDouble("lane",-1.0).toFloat()-1f
+     if(pt in (begin+1) until end && pl in 0f..8f)path.add(ChartWaypoint(pt,pl))
+    }
+   }
+   val moving=kotlin.math.abs(lane-endLane)>.1f || path.any{kotlin.math.abs(it.lane-lane)>.1f}
+   if(moving && path.isEmpty()){skipped++;continue}
+   val knots=(path+ChartWaypoint(end,endLane)).sortedBy{it.timeMs}
+   val release=when(finish.optString("release","")){
+    "flick_left"->NoteKind.FLICK_LEFT
+    "flick_right"->NoteKind.FLICK_RIGHT
+    "flick_up"->NoteKind.FLICK_UP
+    "flick_down"->NoteKind.FLICK_DOWN
+    else->null
+   }
+   result.add(PlayNote(begin,lane,if(moving)NoteKind.SLIDE else NoteKind.HOLD,
+    end,if(moving)knots else emptyList(),confidence,release))
   }
   skipped+=holdEnds.keys.count{it !in holdStarts}
   val unique=result.distinctBy{listOf(it.timeMs,it.lane,it.kind,it.endTimeMs)}
