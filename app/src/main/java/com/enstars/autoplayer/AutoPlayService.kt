@@ -34,6 +34,8 @@ class AutoPlayService : AccessibilityService() {
  private var skipped = 0
  private var lateBatches = 0
  private var maxDispatchLateMs = 0L
+ private var rescheduled = 0
+ private var firstGesture = ChartGesturePlayer.FirstGesture.PENDING
  private var dispatchError = ""
  private var detected = 0
  private var frames = 0
@@ -53,6 +55,8 @@ class AutoPlayService : AccessibilityService() {
    .putInt("skipped", skipped)
    .putInt("lateBatches", lateBatches)
    .putLong("maxDispatchLateMs", maxDispatchLateMs)
+   .putInt("rescheduled", rescheduled)
+   .putString("firstGesture", firstGesture.name)
    .putString("lastDispatchError", dispatchError.ifEmpty { "None" }).apply()
  }
 
@@ -153,18 +157,21 @@ class AutoPlayService : AccessibilityService() {
 
   val epoch = generation + 1
   val savedConfig = GameConfig.load(this)
-  val player = ChartGesturePlayer(chart.events, clock, gestureOutput(savedConfig)) { stats ->
+  val player = ChartGesturePlayer(chart.events, clock, gestureOutput(savedConfig), isolateFirstChord = true) { stats ->
    if (playing && generation == epoch) {
+    val firstGestureChanged = firstGesture != stats.firstGesture
     updateCounts(stats)
     val label = if (stats.finished) "DONE" else "CHART"
-    overlay.updateStatus("$label ${stats.submitted}/${stats.total} OK ${stats.completed}" +
+    overlay.updateStatus("SYNC ${stats.firstGesture} | $label ${stats.submitted}/${stats.total} OK ${stats.completed}" +
      " CXL ${stats.cancelled} REJ ${stats.rejected} SKIP ${stats.overflow}" +
-     " LATE ${stats.lateBatches} (${stats.maxDispatchLateMs}ms)")
+     " RETRY ${stats.rescheduled} LATE ${stats.lateBatches} (${stats.maxDispatchLateMs}ms)")
     if (stats.finished) {
      recordEnd("CHART_FINISHED")
      stopPlayback()
      diagState("FINISHED")
      showChartControls()
+    } else if (firstGestureChanged) {
+     diagState("PLAYING")
     }
    }
   }
@@ -181,10 +188,10 @@ class AutoPlayService : AccessibilityService() {
   overlay.showPlayerControls(onStart = null, onStop = ::stopFromOverlay)
   diagState("SYNC_WAIT")
   val lane = (first.lane + 1).toString().removeSuffix(".0")
-  overlay.updateStatus("SYNC AT CALIBRATED LANE $lane")
-  overlay.showSyncAtLane(first.lane) { fingerDownAt ->
+  overlay.updateStatus("SYNC LANE $lane - RELEASE ON FIRST NOTE")
+  overlay.showSyncAtLane(first.lane) { releasedAt ->
    if (playing && generation == epoch && chartPlayer === player) {
-    player.sync(fingerDownAt, offsetMs)
+    player.sync(releasedAt, offsetMs)
     diagState("PLAYING")
     val heartbeat = object : Runnable {
      override fun run() {
@@ -233,6 +240,8 @@ class AutoPlayService : AccessibilityService() {
   skipped = 0
   lateBatches = 0
   maxDispatchLateMs = 0L
+  rescheduled = 0
+  firstGesture = ChartGesturePlayer.FirstGesture.PENDING
   dispatchError = ""
   detected = 0
   frames = 0
@@ -248,6 +257,8 @@ class AutoPlayService : AccessibilityService() {
   skipped += stats.overflow
   lateBatches += stats.lateBatches
   maxDispatchLateMs = maxOf(maxDispatchLateMs, stats.maxDispatchLateMs)
+  rescheduled += stats.rescheduled
+  if (!accumulate) firstGesture = stats.firstGesture
   if (stats.error.isNotEmpty()) dispatchError = stats.error
  }
 

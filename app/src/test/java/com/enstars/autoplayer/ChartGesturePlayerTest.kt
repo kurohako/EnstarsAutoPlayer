@@ -4,6 +4,70 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChartGesturePlayerTest {
+ @Test fun releaseAnchorsTheFirstChordAndItsCancellationLeavesNextHeadOnTime() {
+  val clock = FakeClock(5002L)
+  val output = FakeOutput(clock)
+  val first = listOf(PlayNote(1000L, 2f, NoteKind.TAP), PlayNote(1000L, 6f, NoteKind.TAP))
+  val next = PlayNote(1040L, 2f, NoteKind.TAP)
+  val player = ChartGesturePlayer(first + next, clock, output, isolateFirstChord = true) {}
+  val touch = SyncTap()
+  touch.press()
+  assertTrue(output.batches.isEmpty())
+
+  player.sync(checkNotNull(touch.release(5000L)), 0L)
+  assertEquals(first, output.batches.single().notes)
+  assertEquals(ChartGesturePlayer.FirstGesture.SUBMITTED, player.summary().firstGesture)
+  clock.advanceTo(5010L)
+  output.complete(false)
+  assertEquals(ChartGesturePlayer.FirstGesture.CANCELLED, player.summary().firstGesture)
+
+  clock.advanceTo(5028L)
+  assertEquals(listOf(next), output.batches.last().notes)
+  assertEquals(5040L, output.sentAt.last() + output.delays.last())
+  clock.advanceTo(5070L)
+  output.complete()
+  assertEquals(1, player.summary().completed)
+  assertEquals(2, player.summary().cancelled)
+ }
+
+ @Test fun cancellationReschedulesOnlyFutureHeadsWithoutCountingThemTwice() {
+  val clock = FakeClock(5000L)
+  val output = FakeOutput(clock)
+  val notes = listOf(1000L, 1065L, 1130L).map { PlayNote(it, 4f, NoteKind.TAP) }
+  val player = ChartGesturePlayer(notes, clock, output) {}
+  player.sync(5000L, 0L)
+  assertEquals(notes, output.batches.single().notes)
+
+  clock.advanceTo(5070L)
+  output.complete(false)
+  clock.advanceTo(5118L)
+  assertEquals(notes.takeLast(1), output.batches.last().notes)
+  assertEquals(5130L, output.sentAt.last() + output.delays.last())
+  clock.advanceTo(5160L)
+  output.complete()
+  assertEquals(3, player.summary().submitted)
+  assertEquals(1, player.summary().completed)
+  assertEquals(2, player.summary().cancelled)
+  assertEquals(1, player.summary().rescheduled)
+  assertTrue(player.summary().finished)
+ }
+
+ @Test fun aSecondCancellationDoesNotRescheduleTheSameFutureHeadAgain() {
+  val clock = FakeClock(5000L)
+  val output = FakeOutput(clock)
+  val notes = listOf(1000L, 1065L).map { PlayNote(it, 4f, NoteKind.TAP) }
+  val player = ChartGesturePlayer(notes, clock, output) {}
+  player.sync(5000L, 0L)
+  output.complete(false)
+  clock.advanceTo(5053L)
+  output.complete(false)
+  clock.advanceTo(5200L)
+  assertEquals(2, output.batches.size)
+  assertEquals(2, player.summary().cancelled)
+  assertEquals(1, player.summary().rescheduled)
+  assertTrue(player.summary().finished)
+ }
+
  @Test fun playingOneBatchNeverPreemptsItOrMovesTheSongClock() {
   val clock = FakeClock(5000L)
   val output = FakeOutput(clock)

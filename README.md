@@ -1,9 +1,9 @@
 # EnstarsAutoPlayer V3.8
 
-- The first-note SYNC ring uses the saved nine-point calibration, including half lanes. Finger-down sets the chart clock. The timing offset shifts the scheduled notes from that clock.
-- Offline playback schedules Tap, Hold, Slide and Flick on the same clock. Batches wait for the previous gesture result and carry any still-held pointers across scheduled slide knots and Flick releases.
+- The first-note SYNC ring uses the saved nine-point calibration, including half lanes. Lift your finger as the first note reaches the judgment point. The touch release sets the chart clock and the timing offset shifts the scheduled notes from that clock.
+- Offline playback submits the first note or chord separately, then schedules Tap, Hold, Slide and Flick on the same clock. Batches wait for the previous gesture result and carry any still-held pointers across scheduled slide knots and Flick releases. After cancellation, the player reschedules future note heads once at their original deadlines.
 - Experimental live detection tracks multiple visible blue heads per lane. Android 16 limits accessibility screenshots to one request every 333 ms, so heads can still pass between frames. Imported charts supply the timing for offline playback.
-- **SHOW LAST STOP REASON** includes completed, cancelled, rejected and skipped notes, plus late batch counts and maximum dispatch delay. **HOLD STOP** ends playback.
+- **SHOW LAST STOP REASON** includes Android's result for the first SYNC gesture, rescheduled notes, and dispatch latency. **HOLD STOP** ends playback.
 
 ## V3.7 experimental slow-video chart refinement
 
@@ -26,7 +26,7 @@ Build: GitHub Actions > **Build Android APK** > latest successful run > **Enstar
 Package: `com.enstars.autoplayer`. Android 11+; manual Accessibility Service enablement required.
 
 ## What's new in V3.6
-- **SYNC ON FIRST NOTE**: Start the offline chart, switch to the game, and touch the small SYNC ring located directly on the first calibrated note target when the note crosses the judgment circle. The ring closes on finger-down and the service begins scheduling the chart.
+- **SYNC ON FIRST NOTE**: Start the offline chart and switch to the game. The SYNC ring marks the first calibrated judgment point, and the service schedules the chart as soon as the SYNC touch ends.
 - **Typed gestures**: Tap, left/right/up/down Flick, timed stationary Hold, path-based Slide and optional Flick release at the end of a Hold/Slide.
 - **Multi-touch overlap planner**: simultaneous or overlapping notes share gesture batches. Sustained notes use `continueStroke()` across batches at timed knots, release Flicks, and stroke limits.
 - **Built-in 60-FPS chart candidates**: 508 blue Tap candidates, 42 left-Flick visual candidates, 24 right-Flick visually screened arrow candidates, derived from the user-provided music video. Flick guesses are enabled by default, but can be disabled before selecting the chart. *Timing and all candidate classifications remain experimental and may be wrong.*
@@ -38,7 +38,7 @@ Package: `com.enstars.autoplayer`. Android 11+; manual Accessibility Service ena
 2. Open the game and calibrate nine targets once (Edit 9 points > drag > SAVE).
 3. In the app, select **USE BUILT-IN VIDEO CHART** for the supplied `ハム太郎とっとこうた` Special recording, or import a complete third-party `.txt` / V3.6 `.json` chart.
 4. Return to game. In the app you can press **SHOW FLOATING START / STOP** beforehand, then press floating **START**.
-5. Wait for the first note. The **SYNC** ring is over its judgment point; tap that ring in time with the first note. The overlay is otherwise touch-through.
+5. Touch the **SYNC** ring just before the first note reaches its judgment point. Lift your finger as the note reaches the target.
 6. To stop intentionally, long-press **HOLD STOP**. For unexpected exits, open **SHOW LAST STOP REASON**.
 
 ## Structured V3.6 chart JSON

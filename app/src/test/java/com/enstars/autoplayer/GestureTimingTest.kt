@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GestureTimingTest {
+ @Test fun isolatingTheFirstChordPreservesAnOverlappingHold() {
+  val hold = PlayNote(1000L, 2.5f, NoteKind.HOLD, 1150L)
+  val tap = PlayNote(1030L, 6f, NoteKind.TAP)
+  val plan = GestureBatcher.plan(listOf(hold, tap), isolateFirstChord = true)
+  val (first, next) = plan.batches
+  assertEquals(listOf(hold), first.notes)
+  assertEquals(1030L, first.endMs)
+  assertTrue(first.strokes.single().continuesInNext)
+  assertTrue(next.strokes.first().continuesFromPrevious)
+  assertEquals(1031L, next.strokes.last().startMs)
+  assertValid(plan)
+ }
+
  @Test fun denseRunsSplitAtStrokeBudgetWithoutDroppingNotes() {
   val notes = List(24) { index -> PlayNote(1000L + index * 20, (index % 9).toFloat(), NoteKind.TAP) }
   val plan = GestureBatcher.plan(notes)

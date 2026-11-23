@@ -64,13 +64,16 @@ class MainActivity:Activity(){
    val skipped=p.getInt("skipped",0)
    val late=p.getInt("lateBatches",0)
    val maxLate=p.getLong("maxDispatchLateMs",0L)
+   val firstGesture=p.getString("firstGesture","Unavailable")
+   val rescheduled=p.getInt("rescheduled",0)
    val error=p.getString("lastDispatchError","None")
    val last=p.getLong("heartbeatAt",0L)
    val age=if(last>0)(System.currentTimeMillis()-last)/1000 else -1L
    sessionText.text="Session: "+state+" / last stop: "+reason+
     " / heartbeat age: "+age+"s / taps "+taps+
     " done "+completed+" cancelled "+cancelled+" rejected "+rejected+
-    " skipped "+skipped+" / late "+late+" ("+maxLate+" ms max)"+
+    " skipped "+skipped+" rescheduled "+rescheduled+" / late "+late+" ("+maxLate+" ms max)"+
+    " / SYNC gesture (Android): "+firstGesture+
     " / gesture error: "+error
   }
   button("SHOW LAST STOP REASON"){refreshSessionInfo()}
@@ -118,7 +121,7 @@ class MainActivity:Activity(){
    }catch(_:Exception){}
   }
   label("Slow refinement is experimental. Toggle it off to compare the original V3.6 chart. HOLD/SLIDE still require verified start/end times; orange edges alone cannot determine duration.")
-  label("SYNC ring follows the last saved calibration. Press DOWN as first note reaches the target: no need to wait for finger release.")
+  label("The SYNC ring follows the saved calibration. Touch it just before the first note and lift your finger as the note reaches the target.")
   val syncOffset=EditText(this).apply{
    inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
    setText(getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L).toString())

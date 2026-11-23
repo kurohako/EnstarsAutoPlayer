@@ -29,7 +29,7 @@ object GestureBatcher {
  }
  private data class Pointer(val endMs: Long, val id: Int)
 
- fun plan(events: List<PlayNote>): Plan {
+ fun plan(events: List<PlayNote>, isolateFirstChord: Boolean = false): Plan {
   val sorted = events.filter {
    it.lane in 0f..8f && it.timeMs in 0L..Long.MAX_VALUE - MAX_BATCH_MS &&
     (!it.kind.isSustained || it.endTimeMs in (it.timeMs + 1)..Long.MAX_VALUE - MAX_BATCH_MS)
@@ -69,6 +69,10 @@ object GestureBatcher {
    val earliestHead = start + if (continuing.isEmpty()) 0 else 1
    val window = continuing.toMutableList()
    var boundary = start + MAX_BATCH_MS
+   if (isolateFirstChord && batches.isEmpty()) {
+    val nextHeadTime = playable.firstOrNull { it.note.timeMs > start }?.note?.timeMs
+    if (nextHeadTime != null) boundary = minOf(boundary, nextHeadTime)
+   }
    var latestEnd = start
    fun include(active: ActiveSegment) {
     latestEnd = maxOf(latestEnd, active.segment.endMs)

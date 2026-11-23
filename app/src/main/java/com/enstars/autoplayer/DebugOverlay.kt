@@ -203,7 +203,7 @@ class DebugOverlay(private val context:Context){
  }
  /**
   * The only touchable sync window is centered over the calibrated first note.
-  * The input event's finger-down time anchors the song clock.
+  * Let the physical touch finish before sending a new gesture to the game.
   */
  fun showSyncAtLane(lane:Float,onSync:(Long)->Unit){
   show()
@@ -211,7 +211,7 @@ class DebugOverlay(private val context:Context){
   view.showTargets=false
   view.invalidate()
   syncLane=lane.coerceIn(0f,8f)
-  var triggered=false
+  val tap=SyncTap()
   val button=TextView(context).apply{
    text="SYNC"
    textSize=11f
@@ -224,23 +224,22 @@ class DebugOverlay(private val context:Context){
    }
    setOnTouchListener{_,e->
     when(e.actionMasked){
-     MotionEvent.ACTION_DOWN->{
-      if(!triggered){
-       triggered=true
-       val fingerDownAt=e.downTime
-       // Detach after returning from this input callback and before injecting.
+     MotionEvent.ACTION_DOWN->tap.press()
+     MotionEvent.ACTION_CANCEL,MotionEvent.ACTION_POINTER_DOWN->tap.cancel()
+     MotionEvent.ACTION_UP->{
+      if(e.x<0f||e.x>=width||e.y<0f||e.y>=height)tap.cancel()
+      tap.release(e.eventTime)?.let{releasedAt->
+       // Acknowledge ACTION_UP before detaching the window or injecting.
        post {
         if(syncButton===this){
          clearSyncTarget()
-         onSync(fingerDownAt)
+         onSync(releasedAt)
         }
        }
       }
-      true
      }
-     MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->true
-     else->true
     }
+    true
    }
   }
   syncButton=button
