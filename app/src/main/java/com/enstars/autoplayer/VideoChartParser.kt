@@ -10,10 +10,19 @@ object VideoChartParser {
   require(format=="enstars-video-v1"||format=="enstars-video-v2"){"Unsupported format: $format"}
   val notes=root.getJSONArray("notes")
   val result=ArrayList<PlayNote>()
+  val holdStarts=mutableMapOf<String,JSONObject>()
+  val holdEnds=mutableMapOf<String,JSONObject>()
   var skipped=0
   for(i in 0 until notes.length()){
    val note=notes.optJSONObject(i)
    if(note==null){skipped++;continue}
+   val rawType=note.optString("type")
+   if(rawType=="hold_start"||rawType=="hold_end"){
+    val id=note.optString("holdId","")
+    if(id.isBlank()){skipped++;continue}
+    if(rawType=="hold_start")holdStarts[id]=note else holdEnds[id]=note
+    continue
+   }
    val confidence=note.optString("confidence","unknown")
    if(confidence=="low"||confidence=="unknown"){skipped++;continue}
    val time=note.optLong("timeMs",-1L)
@@ -55,6 +64,22 @@ object VideoChartParser {
    }
    result.add(PlayNote(time,lane,kind,end,path.sortedBy{it.timeMs},confidence,release))
   }
+  for((id,start) in holdStarts){
+   val finish=holdEnds[id]
+   if(finish==null){skipped++;continue}
+   val begin=start.optLong("timeMs",-1L)
+   val end=finish.optLong("timeMs",-1L)
+   val lane=start.optDouble("lane",-1.0).toFloat()-1f
+   val endLane=finish.optDouble("lane",-1.0).toFloat()-1f
+   if(begin<0||end<=begin||end-begin>30000L||lane !in 0f..8f||endLane !in 0f..8f){
+    skipped++;continue
+   }
+   val confidence=start.optString("confidence","unknown")
+   if(confidence!="high"&&confidence!="medium"){skipped++;continue}
+   if(kotlin.math.abs(lane-endLane)>.1f){skipped++;continue}
+   result.add(PlayNote(begin,lane,NoteKind.HOLD,end,confidence=confidence))
+  }
+  skipped+=holdEnds.keys.count{it !in holdStarts}
   val unique=result.distinctBy{listOf(it.timeMs,it.lane,it.kind,it.endTimeMs)}
    .sortedWith(compareBy<PlayNote>{it.timeMs}.thenBy{it.lane})
   return ChartParser.Chart(
