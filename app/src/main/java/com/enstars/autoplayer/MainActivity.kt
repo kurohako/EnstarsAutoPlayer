@@ -73,7 +73,7 @@ class MainActivity:Activity(){
     " / heartbeat age: "+age+"s / taps "+taps+
     " done "+completed+" cancelled "+cancelled+" rejected "+rejected+
     " skipped "+skipped+" rescheduled "+rescheduled+" / late "+late+" ("+maxLate+" ms max)"+
-    " / SYNC gesture (Android): "+firstGesture+
+    " / first-note SYNC: "+firstGesture+
     " / gesture error: "+error
   }
   button("SHOW LAST STOP REASON"){refreshSessionInfo()}
@@ -121,7 +121,8 @@ class MainActivity:Activity(){
    }catch(_:Exception){}
   }
   label("Slow refinement is experimental. Toggle it off to compare the original V3.6 chart. HOLD/SLIDE still require verified start/end times; orange edges alone cannot determine duration.")
-  label("The SYNC ring follows the saved calibration. Touch it just before the first note and lift your finger as the note reaches the target.")
+  label("For a single opening Tap, press ARM SYNC in Live, then hit the marked note yourself. The first game touch after arming sets the chart clock.")
+  label("For other openings, lift your finger from the SYNC ring as the first note reaches the target.")
   val syncOffset=EditText(this).apply{
    inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
    setText(getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L).toString())
@@ -135,7 +136,7 @@ class MainActivity:Activity(){
    }else{
     getSharedPreferences("chart",MODE_PRIVATE).edit().putLong("syncOffset",offset).apply()
     service()?.startChartAutoplay(offset)
-    Toast.makeText(this,"Switch to game and sync on first note",Toast.LENGTH_LONG).show()
+    Toast.makeText(this,"Switch to the game and follow the SYNC overlay",Toast.LENGTH_LONG).show()
    }
   }
 

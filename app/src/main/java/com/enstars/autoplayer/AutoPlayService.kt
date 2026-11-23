@@ -78,7 +78,7 @@ class AutoPlayService : AccessibilityService() {
   instance = this
   overlay = DebugOverlay(this)
   val prefs = getSharedPreferences("sessionDiagnostics", MODE_PRIVATE)
-  if (prefs.getString("state", "IDLE") in listOf("PLAYING", "SYNC_WAIT", "LIVE_DETECT")) {
+  if (prefs.getString("state", "IDLE") in listOf("PLAYING", "SYNC_WAIT", "SYNC_ARMED", "LIVE_DETECT")) {
    recordEnd("SERVICE_RESTARTED_UNEXPECTEDLY")
   }
   prefs.edit().putString("state", "READY").apply()
@@ -185,13 +185,12 @@ class AutoPlayService : AccessibilityService() {
   resetCounts()
   playing = true
   chartPlayer = player
-  overlay.showPlayerControls(onStart = null, onStop = ::stopFromOverlay)
   diagState("SYNC_WAIT")
-  val lane = (first.lane + 1).toString().removeSuffix(".0")
-  overlay.updateStatus("SYNC LANE $lane - RELEASE ON FIRST NOTE")
-  overlay.showSyncAtLane(first.lane) { releasedAt ->
+  val manual = player.canSyncFromManualTap
+  val onSync: (Long) -> Unit = onSync@{ anchorAt ->
    if (playing && generation == epoch && chartPlayer === player) {
-    player.sync(releasedAt, offsetMs)
+    player.sync(anchorAt, offsetMs, manualFirstTap = manual)
+    if (!playing || generation != epoch) return@onSync
     diagState("PLAYING")
     val heartbeat = object : Runnable {
      override fun run() {
@@ -204,6 +203,16 @@ class AutoPlayService : AccessibilityService() {
     }
     handler.postDelayed(heartbeat, 1000L)
    }
+  }
+  if (manual) {
+   overlay.showManualSyncAtLane(first.lane, ::stopFromOverlay, onArmed = {
+    if (playing && generation == epoch) diagState("SYNC_ARMED")
+   }, onSync = onSync)
+  } else {
+   overlay.showPlayerControls(onStart = null, onStop = ::stopFromOverlay)
+   val lane = (first.lane + 1).toString().removeSuffix(".0")
+   overlay.updateStatus("SYNC LANE $lane - RELEASE ON FIRST NOTE")
+   overlay.showSyncAtLane(first.lane, onSync)
   }
  }
 

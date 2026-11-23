@@ -1,9 +1,10 @@
 # EnstarsAutoPlayer V3.8
 
-- The first-note SYNC ring uses the saved nine-point calibration, including half lanes. Lift your finger as the first note reaches the judgment point. The touch release sets the chart clock and the timing offset shifts the scheduled notes from that clock.
-- Offline playback submits the first note or chord separately, then schedules Tap, Hold, Slide and Flick on the same clock. Batches wait for the previous gesture result and carry any still-held pointers across scheduled slide knots and Flick releases. After cancellation, the player reschedules future note heads once at their original deadlines.
+- For a chart that opens with a single Tap, press **ARM SYNC** once Live has started. Hit the marked first note in the game. The first game touch sets the chart clock, and playback starts with the following note.
+- For a chart that opens with a chord, Flick, Hold or Slide, lift your finger from the **SYNC** ring as the first note reaches its judgment point. In this mode the touch release sets the chart clock. The ring follows the saved calibration in both modes.
+- The timing offset shifts injected notes in both modes. The injected opening note or chord has its own batch. Batches wait for the previous gesture result and carry held pointers across Slide knots and Flick releases. After cancellation, the player reschedules future note heads once at their original deadlines.
 - Experimental live detection tracks multiple visible blue heads per lane. Android 16 limits accessibility screenshots to one request every 333 ms, so heads can still pass between frames. Imported charts supply the timing for offline playback.
-- **SHOW LAST STOP REASON** includes Android's result for the first SYNC gesture, rescheduled notes, and dispatch latency. **HOLD STOP** ends playback.
+- **SHOW LAST STOP REASON** includes the first-note SYNC source, rescheduled notes, and dispatch latency. `MANUAL_TAP` indicates a game touch was observed. **HOLD STOP** ends playback.
 
 ## V3.7 experimental slow-video chart refinement
 
@@ -38,7 +39,7 @@ Package: `com.enstars.autoplayer`. Android 11+; manual Accessibility Service ena
 2. Open the game and calibrate nine targets once (Edit 9 points > drag > SAVE).
 3. In the app, select **USE BUILT-IN VIDEO CHART** for the supplied `ハム太郎とっとこうた` Special recording, or import a complete third-party `.txt` / V3.6 `.json` chart.
 4. Return to game. In the app you can press **SHOW FLOATING START / STOP** beforehand, then press floating **START**.
-5. Touch the **SYNC** ring just before the first note reaches its judgment point. Lift your finger as the note reaches the target.
+5. If **ARM SYNC** appears, press it in Live, then tap the marked first note yourself. For a **SYNC** ring without an arming button, lift your finger as the first note reaches the target.
 6. To stop intentionally, long-press **HOLD STOP**. For unexpected exits, open **SHOW LAST STOP REASON**.
 
 ## Structured V3.6 chart JSON

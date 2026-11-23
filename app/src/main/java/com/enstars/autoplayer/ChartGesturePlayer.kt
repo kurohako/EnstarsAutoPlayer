@@ -21,7 +21,7 @@ class ChartGesturePlayer(
   fun discard()
  }
 
- enum class FirstGesture { PENDING, SUBMITTED, COMPLETED, CANCELLED, REJECTED }
+ enum class FirstGesture { PENDING, MANUAL_TAP, SUBMITTED, COMPLETED, CANCELLED, REJECTED }
 
  data class Stats(
   val submitted: Int, val completed: Int, val cancelled: Int, val rejected: Int,
@@ -51,6 +51,8 @@ class ChartGesturePlayer(
  private var firstGesture = FirstGesture.PENDING
 
  val first = plan.batches.firstOrNull()?.strokes?.firstOrNull()?.note
+ val canSyncFromManualTap = isolateFirstChord &&
+  plan.batches.firstOrNull()?.strokes?.singleOrNull()?.note?.kind == NoteKind.TAP
 
  fun summary() = Stats(
   submitted.size, completed, cancelled, rejected, plan.overflow, plan.total, lateBatches,
@@ -66,12 +68,19 @@ class ChartGesturePlayer(
   releasePointers()
  }
 
- fun sync(anchorUptimeMs: Long, timingOffsetMs: Long) {
+ fun sync(anchorUptimeMs: Long, timingOffsetMs: Long, manualFirstTap: Boolean = false) {
   val firstStartMs = firstStart ?: return
   if (stopped || synced) return
+  require(!manualFirstTap || canSyncFromManualTap)
   synced = true
   base = anchorUptimeMs - firstStartMs + timingOffsetMs
+  if (manualFirstTap) {
+   // The game receives this physical tap directly. Its first chart stroke is consumed.
+   firstGesture = FirstGesture.MANUAL_TAP
+   nextBatch = 1
+  }
   scheduleNext()
+  if (manualFirstTap && !finished) report(force = true)
  }
 
  private fun scheduleNext() {

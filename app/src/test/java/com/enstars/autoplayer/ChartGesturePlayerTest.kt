@@ -4,12 +4,46 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChartGesturePlayerTest {
+ @Test fun aManualOpeningTapAnchorsPlaybackWithoutInjectingTheFirstNoteAgain() {
+  val clock = FakeClock(5004L)
+  val output = FakeOutput(clock)
+  val first = PlayNote(6833L, 5f, NoteKind.TAP)
+  val next = PlayNote(7541L, 7f, NoteKind.TAP)
+  val player = ChartGesturePlayer(listOf(first, next), clock, output, isolateFirstChord = true) {}
+  assertTrue(player.canSyncFromManualTap)
+
+  player.sync(5000L, 20L, manualFirstTap = true)
+  assertEquals(ChartGesturePlayer.FirstGesture.MANUAL_TAP, player.summary().firstGesture)
+  assertEquals(0, player.summary().submitted)
+  clock.advanceTo(5715L)
+  assertTrue(output.batches.isEmpty())
+  clock.advanceTo(5716L)
+  assertEquals(listOf(next), output.batches.single().notes)
+  assertEquals(5728L, output.sentAt.single() + output.delays.single())
+  clock.advanceTo(5758L)
+  output.complete()
+  assertEquals(1, player.summary().completed)
+  assertEquals(ChartGesturePlayer.FirstGesture.MANUAL_TAP, player.summary().firstGesture)
+ }
+
+ @Test fun aSingleManualTapFinishesWithoutSubmittingAnAndroidGesture() {
+  val clock = FakeClock(5000L)
+  val output = FakeOutput(clock)
+  val player = ChartGesturePlayer(listOf(PlayNote(1000L, 2f, NoteKind.TAP)), clock, output,
+   isolateFirstChord = true) {}
+  player.sync(5000L, 0L, manualFirstTap = true)
+  assertTrue(player.summary().finished)
+  assertTrue(output.batches.isEmpty())
+  assertEquals(ChartGesturePlayer.FirstGesture.MANUAL_TAP, player.summary().firstGesture)
+ }
+
  @Test fun releaseAnchorsTheFirstChordAndItsCancellationLeavesNextHeadOnTime() {
   val clock = FakeClock(5002L)
   val output = FakeOutput(clock)
   val first = listOf(PlayNote(1000L, 2f, NoteKind.TAP), PlayNote(1000L, 6f, NoteKind.TAP))
   val next = PlayNote(1040L, 2f, NoteKind.TAP)
   val player = ChartGesturePlayer(first + next, clock, output, isolateFirstChord = true) {}
+  assertFalse(player.canSyncFromManualTap)
   val touch = SyncTap()
   touch.press()
   assertTrue(output.batches.isEmpty())

@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.MotionEvent
 import android.view.View
@@ -30,6 +31,7 @@ class DebugOverlay(private val context:Context){
  private var syncButton:TextView?=null
  private var syncAdded=false
  private var syncLane:Float?=null
+ private var syncTouchable=false
  private val floatingButtons=mutableListOf<View>()
  private val density=context.resources.displayMetrics.density
  private val handleSize=(54*density).roundToInt()
@@ -39,9 +41,9 @@ class DebugOverlay(private val context:Context){
   WindowManager.LayoutParams(w,h,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
    windowFlags or (if(touchable)0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
    PixelFormat.TRANSLUCENT).apply{gravity=Gravity.TOP or Gravity.LEFT;this.x=x;this.y=y}
- private fun markerParams(size:Int,lane:Float,bounds:CalibratedViewport):WindowManager.LayoutParams{
+ private fun markerParams(size:Int,lane:Float,bounds:CalibratedViewport,touchable:Boolean=true):WindowManager.LayoutParams{
   val (x,y)=bounds.point(lane,view.xs,view.ys)
-  return params(size,size,(x-size/2f).roundToInt(),(y-size/2f).roundToInt(),true).apply{
+  return params(size,size,(x-size/2f).roundToInt(),(y-size/2f).roundToInt(),touchable).apply{
    // These small windows use display coordinates, including when centered at a viewport edge.
    setFitInsetsTypes(0)
    layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -152,15 +154,29 @@ class DebugOverlay(private val context:Context){
   view.invalidate()
   onSave?.invoke()
  }
- fun showPlayerControls(onStart: (()->Unit)?,onStop:()->Unit){
+ fun showPlayerControls(
+  onStart:(()->Unit)?,onStop:()->Unit,startText:String="START",onOutsideTap:((Long)->Unit)?=null
+ ){
   show()
   view.showTargets=false
   view.invalidate()
   clearPlayerControls()
-  val items=listOfNotNull(onStart?.let{"START" to it},"HOLD STOP" to onStop)
+  val items=listOfNotNull(onStart?.let{startText to it},"HOLD STOP" to onStop)
   for(item in items){
-   val start=item.first=="START"
-   val button=TextView(context).apply{
+   val start=item.first==startText
+   val outsideTap=if(start)null else onOutsideTap
+   val button=object:TextView(context){
+    override fun dispatchTouchEvent(event:MotionEvent):Boolean{
+     if(outsideTap!=null&&event.actionMasked==MotionEvent.ACTION_OUTSIDE&&
+      event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)&&event.deviceId!=KeyCharacterMap.VIRTUAL_KEYBOARD){
+      // The game receives the original DOWN. Outside events from another app omit coordinates.
+      val downAt=event.eventTime
+      post{if(this in floatingButtons)outsideTap(downAt)}
+      return true
+     }
+     return super.dispatchTouchEvent(event)
+    }
+   }.apply{
     text=item.first
     textSize=12f
     gravity=Gravity.CENTER
@@ -175,8 +191,21 @@ class DebugOverlay(private val context:Context){
     }
    }
    floatingButtons.add(button)
-   wm.addView(button,params(((if(start)78 else 105)*density).roundToInt(),(42*density).roundToInt(),
-    (12*density).roundToInt(),((if(start)115 else 163)*density).roundToInt(),true))
+   val width=((if(start)78 else 105)*density).roundToInt()
+   val margin=(12*density).roundToInt()
+   var x=margin
+   val lane=syncLane
+   val bounds=touchViewport()
+   if(outsideTap!=null&&bounds!=null&&lane!=null){
+    val target=bounds.point(lane,view.xs,view.ys)
+    if(target.x<bounds.left+bounds.width/2f)x=(bounds.width-width-margin).coerceAtLeast(margin)
+   }
+   val layout=params(width,(42*density).roundToInt(),x,((if(start)115 else 163)*density).roundToInt(),true)
+   if(outsideTap!=null){
+    layout.flags=layout.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+   }
+   wm.addView(button,layout)
   }
  }
  private fun clearPlayerControls(){
@@ -194,26 +223,39 @@ class DebugOverlay(private val context:Context){
   val lane=syncLane?:return
   val bounds=touchViewport()?:return
   val size=(60*density).roundToInt()
-  val p=markerParams(size,lane,bounds)
+  val p=markerParams(size,lane,bounds,syncTouchable)
   if(syncAdded)wm.updateViewLayout(button,p)
   else{
    wm.addView(button,p)
    syncAdded=true
   }
  }
- /**
-  * The only touchable sync window is centered over the calibrated first note.
-  * Let the physical touch finish before sending a new gesture to the game.
-  */
- fun showSyncAtLane(lane:Float,onSync:(Long)->Unit){
+ fun showManualSyncAtLane(lane:Float,onStop:()->Unit,onArmed:()->Unit,onSync:(Long)->Unit){
+  installSyncTarget(lane,onSync=null)
+  updateStatus("IN LIVE, PRESS ARM SYNC")
+  showPlayerControls(onStart={
+   updateStatus("ARMED - MANUALLY TAP FIRST NOTE")
+   showPlayerControls(onStart=null,onStop=onStop,onOutsideTap={downAt->
+    clearSyncTarget()
+    showPlayerControls(onStart=null,onStop=onStop)
+    onSync(downAt)
+   })
+   onArmed()
+  },onStop=onStop,startText="ARM SYNC")
+ }
+
+ fun showSyncAtLane(lane:Float,onSync:(Long)->Unit)=installSyncTarget(lane,onSync)
+
+ private fun installSyncTarget(lane:Float,onSync:((Long)->Unit)?){
   show()
   clearSyncTarget()
   view.showTargets=false
   view.invalidate()
   syncLane=lane.coerceIn(0f,8f)
+  syncTouchable=onSync!=null
   val tap=SyncTap()
   val button=TextView(context).apply{
-   text="SYNC"
+   text=if(onSync==null)"TAP" else "SYNC"
    textSize=11f
    gravity=Gravity.CENTER
    setTextColor(Color.WHITE)
@@ -222,7 +264,7 @@ class DebugOverlay(private val context:Context){
     setColor(0xAA047C91.toInt())
     setStroke((3*density).roundToInt(),Color.CYAN)
    }
-   setOnTouchListener{_,e->
+   if(onSync!=null)setOnTouchListener{_,e->
     when(e.actionMasked){
      MotionEvent.ACTION_DOWN->tap.press()
      MotionEvent.ACTION_CANCEL,MotionEvent.ACTION_POINTER_DOWN->tap.cancel()
