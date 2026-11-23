@@ -3,248 +3,395 @@ package com.enstars.autoplayer
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
+import java.util.concurrent.Executors
 
-/** Experimental tap-only autoplay. Requires manual nine-point calibration. */
-class AutoPlayService:AccessibilityService(){
- companion object{@Volatile var instance:AutoPlayService?=null;private set}
- private val handler=Handler(Looper.getMainLooper())
- private lateinit var overlay:DebugOverlay
- private var playing=false
- private var busy=false
- private var generation=0
- private var config=GameConfig()
- private var detector=NoteDetector(config)
- private var dispatched=0
- private var detected=0
- private var frames=0
- private var chartCompleted=0
- private var chartCancelled=0
- private var chartRejected=0
- private var chartTotal=0
- private var chartActive=false
- private var chartPlayer:ChartGesturePlayer?=null
- private var screenshotErrors=0
- private var captureBackoffMs=0L
- private fun diagState(state:String){
-  getSharedPreferences("sessionDiagnostics",MODE_PRIVATE).edit()
-   .putString("state",state)
-   .putLong("heartbeatAt",System.currentTimeMillis())
-   .putInt("taps",dispatched)
-   .putInt("completed",chartCompleted)
-   .putInt("cancelled",chartCancelled)
-   .putInt("rejected",chartRejected).apply()
+class AutoPlayService : AccessibilityService() {
+ companion object {
+  @Volatile var instance: AutoPlayService? = null
+   private set
+  // Accessibility screenshots are rate-limited to one request per 333 ms on Android 16.
+  private const val SCREENSHOT_INTERVAL_MS = 350L
  }
- private fun endSession(reason:String){
-  val prefs=getSharedPreferences("sessionDiagnostics",MODE_PRIVATE)
-  val active=prefs.getString("state","IDLE") in listOf("PLAYING","SYNC_WAIT","LIVE_DETECT")
-  if(active){
-   prefs.edit().putString("lastEndReason",reason)
-    .putLong("lastEndAt",System.currentTimeMillis()).apply()
-  }
+
+ private val handler = Handler(Looper.getMainLooper())
+ private val clock = HandlerGestureClock(handler)
+ private val imageWorker = Executors.newSingleThreadExecutor()
+ private lateinit var overlay: DebugOverlay
+ private var playing = false
+ private var generation = 0
+ private var config = GameConfig()
+ private var detector = NoteDetector(config)
+ private var dispatched = 0
+ private var completed = 0
+ private var cancelled = 0
+ private var rejected = 0
+ private var skipped = 0
+ private var lateBatches = 0
+ private var maxDispatchLateMs = 0L
+ private var rescheduled = 0
+ private var firstGesture = ChartGesturePlayer.FirstGesture.PENDING
+ private var dispatchError = ""
+ private var detected = 0
+ private var frames = 0
+ private var screenshotErrors = 0
+ private var chartPlayer: ChartGesturePlayer? = null
+ private var livePlayer: ChartGesturePlayer? = null
+ private val liveNotes = mutableListOf<PlayNote>()
+
+ private fun diagState(state: String) {
+  getSharedPreferences("sessionDiagnostics", MODE_PRIVATE).edit()
+   .putString("state", state)
+   .putLong("heartbeatAt", System.currentTimeMillis())
+   .putInt("taps", dispatched)
+   .putInt("completed", completed)
+   .putInt("cancelled", cancelled)
+   .putInt("rejected", rejected)
+   .putInt("skipped", skipped)
+   .putInt("lateBatches", lateBatches)
+   .putLong("maxDispatchLateMs", maxDispatchLateMs)
+   .putInt("rescheduled", rescheduled)
+   .putString("firstGesture", firstGesture.name)
+   .putString("lastDispatchError", dispatchError.ifEmpty { "None" }).apply()
+ }
+
+ private fun recordEnd(reason: String) {
+  getSharedPreferences("sessionDiagnostics", MODE_PRIVATE).edit()
+   .putString("lastEndReason", reason)
+   .putLong("lastEndAt", System.currentTimeMillis()).apply()
+ }
+
+ private fun endSession(reason: String) {
+  if (playing) recordEnd(reason)
   stopPlayback()
   diagState("STOPPED")
-  if(::overlay.isInitialized)overlay.close()
+  if (::overlay.isInitialized) overlay.close()
  }
- override fun onServiceConnected(){
+
+ override fun onServiceConnected() {
   super.onServiceConnected()
-  instance=this
-  overlay=DebugOverlay(this)
-  val prefs=getSharedPreferences("sessionDiagnostics",MODE_PRIVATE)
-  if(prefs.getString("state","IDLE") in listOf("PLAYING","SYNC_WAIT","LIVE_DETECT")){
-   prefs.edit().putString("lastEndReason","SERVICE_RESTARTED_UNEXPECTEDLY")
-    .putLong("lastEndAt",System.currentTimeMillis()).apply()
+  instance = this
+  overlay = DebugOverlay(this)
+  val prefs = getSharedPreferences("sessionDiagnostics", MODE_PRIVATE)
+  if (prefs.getString("state", "IDLE") in listOf("PLAYING", "SYNC_WAIT", "SYNC_ARMED", "LIVE_DETECT")) {
+   recordEnd("SERVICE_RESTARTED_UNEXPECTEDLY")
   }
-  diagState("READY")
+  prefs.edit().putString("state", "READY").apply()
  }
- override fun onAccessibilityEvent(event:AccessibilityEvent?)=Unit
- override fun onInterrupt(){endSession("ACCESSIBILITY_INTERRUPTED")}
- override fun onDestroy(){endSession("SERVICE_DESTROYED");instance=null;super.onDestroy()}
- fun start(){
-  stopPlayback()
-  config=GameConfig.load(this);detector=NoteDetector(config)
-  overlay.show();overlay.showFixed(config)
+
+ override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+ override fun onInterrupt() = endSession("ACCESSIBILITY_INTERRUPTED")
+ override fun onDestroy() {
+  endSession("SERVICE_DESTROYED")
+  imageWorker.shutdown()
+  instance = null
+  super.onDestroy()
  }
- fun restartCalibration(){start()}
- fun editPoints(){
+
+ fun start() = showCalibration(GameConfig.load(this))
+
+ private fun showCalibration(calibration: GameConfig) {
   stopPlayback()
-  config=GameConfig.load(this)
+  config = calibration
+  detector = NoteDetector(config)
   overlay.show()
-  overlay.edit(config){config=GameConfig.load(this);detector=NoteDetector(config)}
+  overlay.showFixed(config)
  }
- fun startAutoplay(){
-  if(!::overlay.isInitialized)return
+
+ fun restartCalibration() = start()
+
+ fun editPoints() {
+  stopPlayback()
+  config = GameConfig.load(this)
+  overlay.edit(config) { config = GameConfig.load(this) }
+ }
+
+ fun startAutoplay() {
+  if (!::overlay.isInitialized) return
   start()
-  playing=true
-  dispatched=0;detected=0;frames=0;screenshotErrors=0;captureBackoffMs=0L
+  resetCounts()
+  playing = true
+  overlay.showPlayerControls(onStart = null, onStop = ::stopFromOverlay)
   overlay.updateStatus("AUTO TAP - EXPERIMENTAL")
   diagState("LIVE_DETECT")
-  handler.post(::capture)
+  val epoch = generation
+  handler.post { capture(epoch) }
  }
- fun showFloatingControls(){
-  if(!::overlay.isInitialized)return
+
+ fun showFloatingControls() {
+  if (!::overlay.isInitialized) return
   start()
-  overlay.showPlayerControls(
-   onStart={
-    val offset=getSharedPreferences("chart",MODE_PRIVATE).getLong("syncOffset",0L)
-    startChartAutoplay(offset)
-   },
-   onStop={stopFromOverlay()}
-  )
+  showChartControls()
   overlay.updateStatus("FLOATING CONTROL READY")
  }
- fun startChartAutoplay(offsetMs:Long){
-  if(!::overlay.isInitialized)return
-  if(playing&&chartActive){
+
+ private fun showChartControls() {
+  overlay.showPlayerControls(onStart = {
+   val offset = getSharedPreferences("chart", MODE_PRIVATE).getLong("syncOffset", 0L)
+   startChartAutoplay(offset)
+  }, onStop = ::stopFromOverlay)
+ }
+
+ fun startChartAutoplay(offsetMs: Long) {
+  if (!::overlay.isInitialized) return
+  if (chartPlayer != null) {
    overlay.updateStatus("CHART ALREADY ACTIVE")
    return
   }
-  val raw=getSharedPreferences("chart",MODE_PRIVATE).getString("chartText",null)
-  if(raw.isNullOrBlank()){overlay.updateStatus("NO CHART IMPORTED");return}
-  val chart=try{ChartParser.parse(raw)}
-   catch(e:Exception){overlay.updateStatus("CHART ERROR "+e.javaClass.simpleName);return}
-  if(chart.events.isEmpty()){overlay.updateStatus("CHART HAS NO PLAYABLE NOTES");return}
-  start()
-  playing=true
-  chartActive=true
-  dispatched=0;chartCompleted=0;chartCancelled=0;chartRejected=0
-  val epoch=generation
-  val player=ChartGesturePlayer(this,handler,config,{overlay.touchViewport()},chart.events){stats->
-   if(playing&&generation==epoch){
-    dispatched=stats.submitted
-    chartCompleted=stats.completed
-    chartCancelled=stats.cancelled
-    chartRejected=stats.rejected
-    chartTotal=stats.total
-    if(stats.error.isNotEmpty()){
-     getSharedPreferences("sessionDiagnostics",MODE_PRIVATE).edit()
-      .putString("lastDispatchError",stats.error).apply()
+  val raw = getSharedPreferences("chart", MODE_PRIVATE).getString("chartText", null)
+  if (raw.isNullOrBlank()) {
+   overlay.updateStatus("NO CHART IMPORTED")
+   return
+  }
+  val chart = try {
+   ChartParser.parse(raw)
+  } catch (e: Exception) {
+   overlay.updateStatus("CHART ERROR " + e.javaClass.simpleName)
+   return
+  }
+
+  val epoch = generation + 1
+  val savedConfig = GameConfig.load(this)
+  val player = ChartGesturePlayer(chart.events, clock, gestureOutput(savedConfig), isolateFirstChord = true) { stats ->
+   if (playing && generation == epoch) {
+    val firstGestureChanged = firstGesture != stats.firstGesture
+    updateCounts(stats)
+    val label = if (stats.finished) "DONE" else "CHART"
+    overlay.updateStatus("SYNC ${stats.firstGesture} | $label ${stats.submitted}/${stats.total} OK ${stats.completed}" +
+     " CXL ${stats.cancelled} REJ ${stats.rejected} SKIP ${stats.overflow}" +
+     " RETRY ${stats.rescheduled} LATE ${stats.lateBatches} (${stats.maxDispatchLateMs}ms)")
+    if (stats.finished) {
+     recordEnd("CHART_FINISHED")
+     stopPlayback()
+     diagState("FINISHED")
+     showChartControls()
+    } else if (firstGestureChanged) {
+     diagState("PLAYING")
     }
-    overlay.updateStatus("V3.6 "+stats.submitted+"/"+stats.total+
-     " OK "+stats.completed+" CXL "+stats.cancelled+
-     " REJ "+stats.rejected+" SKIP "+stats.overflow+
-     " LATE "+stats.lateBatches)
    }
   }
-  chartPlayer=player
-  chartTotal=player.total
-  overlay.showPlayerControls(onStart={startChartAutoplay(offsetMs)},onStop={stopFromOverlay()})
+  val first = player.first
+  if (first == null) {
+   overlay.updateStatus("CHART HAS NO PLAYABLE NOTES")
+   return
+  }
+
+  showCalibration(savedConfig)
+  resetCounts()
+  playing = true
+  chartPlayer = player
   diagState("SYNC_WAIT")
-  overlay.updateStatus("SYNC AT CALIBRATED LANE "+((player.first?.lane?:0f)+1).toInt())
-  overlay.showSyncAtLane(player.first?.lane?:0f){fingerDownAt->
-   if(!playing||generation!=epoch||chartPlayer!==player)return@showSyncAtLane
-   diagState("PLAYING")
-   player.sync(fingerDownAt,offsetMs)
-   val dashboard=object:Runnable{
-    override fun run(){
-     if(!playing||generation!=epoch||chartPlayer!==player)return
-     val s=player.summary()
-     overlay.updateStatus("CHART "+s.submitted+"/"+s.total+
-      " OK "+s.completed+" CXL "+s.cancelled+" REJ "+s.rejected+
-      " SKIP "+s.overflow+" LATE "+s.lateBatches)
-     diagState("PLAYING")
-     handler.postDelayed(this,1000L)
+  val manual = player.canSyncFromManualTap
+  val onSync: (Long) -> Unit = onSync@{ anchorAt ->
+   if (playing && generation == epoch && chartPlayer === player) {
+    player.sync(anchorAt, offsetMs, manualFirstTap = manual)
+    if (!playing || generation != epoch) return@onSync
+    diagState("PLAYING")
+    val heartbeat = object : Runnable {
+     override fun run() {
+      if (playing && generation == epoch) {
+       updateCounts(player.summary())
+       diagState("PLAYING")
+       handler.postDelayed(this, 1000L)
+      }
+     }
     }
+    handler.postDelayed(heartbeat, 1000L)
    }
-   handler.postDelayed(dashboard,1000L)
+  }
+  if (manual) {
+   overlay.showManualSyncAtLane(first.lane, ::stopFromOverlay, onArmed = {
+    if (playing && generation == epoch) diagState("SYNC_ARMED")
+   }, onSync = onSync)
+  } else {
+   overlay.showPlayerControls(onStart = null, onStop = ::stopFromOverlay)
+   val lane = (first.lane + 1).toString().removeSuffix(".0")
+   overlay.updateStatus("SYNC LANE $lane - RELEASE ON FIRST NOTE")
+   overlay.showSyncAtLane(first.lane, onSync)
   }
  }
- fun testTap(){
-  stopPlayback()
-  config=GameConfig.load(this)
-  overlay.show();overlay.showFixed(config)
+
+ fun testTap() {
+  start()
+  val epoch = generation
   handler.postDelayed({
-  val metrics=resources.displayMetrics
-  val landscape=metrics.widthPixels>=metrics.heightPixels
-  val nx=config.laneXs[4];val ny=config.laneYs[4]
-  val x=if(landscape)nx*metrics.widthPixels else ny*metrics.widthPixels
-  val y=if(landscape)ny*metrics.heightPixels else (1f-nx)*metrics.heightPixels
-  val path=Path().apply{moveTo(x,y)}
-  val gesture=GestureDescription.Builder()
-   .addStroke(GestureDescription.StrokeDescription(path,0,60)).build()
-  val accepted=dispatchGesture(gesture,object:GestureResultCallback(){
-   override fun onCompleted(gestureDescription:GestureDescription?){overlay.updateStatus("TEST TAP COMPLETED")}
-   override fun onCancelled(gestureDescription:GestureDescription?){overlay.updateStatus("TEST TAP CANCELLED")}
-  },null)
-  if(!accepted)overlay.updateStatus("TEST TAP REJECTED")
-  },5000L)
+   val point = overlay.touchViewport()?.point(4f, config.laneXs, config.laneYs)
+   if (point == null) {
+    overlay.updateStatus("TEST TAP: CALIBRATION VIEW UNAVAILABLE")
+    return@postDelayed
+   }
+   val path = Path().apply { moveTo(point.x, point.y) }
+   val gesture = GestureDescription.Builder()
+    .addStroke(GestureDescription.StrokeDescription(path, 0L, 60L)).build()
+   val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
+    override fun onCompleted(gestureDescription: GestureDescription?) {
+     if (epoch == generation) overlay.updateStatus("TEST TAP COMPLETED")
+    }
+    override fun onCancelled(gestureDescription: GestureDescription?) {
+     if (epoch == generation) overlay.updateStatus("TEST TAP CANCELLED")
+    }
+   }, handler)
+   if (!accepted) overlay.updateStatus("TEST TAP REJECTED")
+  }, 5000L)
   overlay.updateStatus("TEST TAP IN 5 SEC - OPEN GAME")
  }
- private fun stopPlayback(){
-  chartPlayer?.stop();chartPlayer=null
-  playing=false;chartActive=false;generation++
-  handler.removeCallbacksAndMessages(null)
-  busy=false
+
+ private fun resetCounts() {
+  dispatched = 0
+  completed = 0
+  cancelled = 0
+  rejected = 0
+  skipped = 0
+  lateBatches = 0
+  maxDispatchLateMs = 0L
+  rescheduled = 0
+  firstGesture = ChartGesturePlayer.FirstGesture.PENDING
+  dispatchError = ""
+  detected = 0
+  frames = 0
+  screenshotErrors = 0
  }
- fun hideWhenIdle(){if(!playing&&::overlay.isInitialized)overlay.close()}
- fun stopFromOverlay(){endSession("LONG_PRESS_STOP")}
- fun stop(){endSession("STOP_FROM_APP")}
- private fun capture(){
-  if(!playing)return
-  if(busy){handler.postDelayed(::capture,80L);return}
-  busy=true
-  val epoch=generation
-  try{
-   takeScreenshot(Display.DEFAULT_DISPLAY,mainExecutor,object:TakeScreenshotCallback{
-    override fun onSuccess(result:ScreenshotResult){
-     try{
-      val buffer=result.hardwareBuffer
-      try{
-       val wrapped=Bitmap.wrapHardwareBuffer(buffer,result.colorSpace)
-       val bitmap=wrapped?.copy(Bitmap.Config.ARGB_8888,false)
-       try{if(bitmap!=null&&playing&&epoch==generation)process(bitmap,epoch)}
-       finally{bitmap?.recycle()}
-      }finally{buffer.close()}
-     }catch(e:Exception){overlay.updateStatus("PROCESS ERROR "+e.javaClass.simpleName)}finally{busy=false;captureBackoffMs=0L;next(epoch)}
+
+ private fun updateCounts(stats: ChartGesturePlayer.Stats, accumulate: Boolean = false) {
+  if (!accumulate) resetCounts()
+  dispatched += stats.submitted
+  completed += stats.completed
+  cancelled += stats.cancelled
+  rejected += stats.rejected
+  skipped += stats.overflow
+  lateBatches += stats.lateBatches
+  maxDispatchLateMs = maxOf(maxDispatchLateMs, stats.maxDispatchLateMs)
+  rescheduled += stats.rescheduled
+  if (!accumulate) firstGesture = stats.firstGesture
+  if (stats.error.isNotEmpty()) dispatchError = stats.error
+ }
+
+ private fun stopPlayback() {
+  playing = false
+  generation++
+  chartPlayer?.let {
+   it.stop()
+   updateCounts(it.summary())
+  }
+  livePlayer?.let {
+   it.stop()
+   updateCounts(it.summary(), accumulate = true)
+  }
+  chartPlayer = null
+  livePlayer = null
+  liveNotes.clear()
+  handler.removeCallbacksAndMessages(null)
+ }
+
+ fun hideWhenIdle() {
+  if (!playing && ::overlay.isInitialized) overlay.close()
+ }
+ fun stopFromOverlay() = endSession("LONG_PRESS_STOP")
+ fun stop() = endSession("STOP_FROM_APP")
+
+ private fun isLive(epoch: Int) = playing && chartPlayer == null && generation == epoch
+
+ private fun capture(epoch: Int) {
+  if (!isLive(epoch)) return
+  val requestedAt = SystemClock.uptimeMillis()
+  fun nextCapture(backoffMs: Long = 0L) {
+   if (isLive(epoch)) {
+    val nextAt = maxOf(requestedAt + SCREENSHOT_INTERVAL_MS, SystemClock.uptimeMillis() + backoffMs)
+    handler.postAtTime({ capture(epoch) }, nextAt)
+   }
+  }
+  try {
+   takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+    override fun onSuccess(result: ScreenshotResult) {
+     val buffer = result.hardwareBuffer
+     val viewport = if (isLive(epoch)) overlay.touchViewport() else null
+     if (viewport == null) {
+      buffer.close()
+      nextCapture()
+      return
+     }
+     val analyzer = detector
+     imageWorker.execute {
+      val frame = runCatching {
+       buffer.use {
+        val wrapped = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace) ?: return@use null
+        val bitmap = try {
+         wrapped.copy(Bitmap.Config.ARGB_8888, false)
+        } finally {
+         wrapped.recycle()
+        } ?: return@use null
+        try {
+         analyzer.detect(bitmap, viewport, result.timestamp)
+        } finally {
+         bitmap.recycle()
+        }
+       }
+      }
+      handler.post {
+       if (!isLive(epoch)) return@post
+       frame.onSuccess { hits ->
+        if (hits != null) acceptLiveFrame(epoch, hits)
+       }.onFailure {
+        overlay.updateStatus("PROCESS ERROR " + it.javaClass.simpleName)
+       }
+       nextCapture()
+      }
+     }
     }
-    override fun onFailure(errorCode:Int){
-     busy=false
+
+    override fun onFailure(errorCode: Int) {
+     if (!isLive(epoch)) return
      screenshotErrors++
-     captureBackoffMs=if(errorCode==3)500L else 250L
-     overlay.updateStatus("CAPTURE ERROR "+errorCode+" x"+screenshotErrors+" OK "+frames)
-     next(epoch)
+     overlay.updateStatus("CAPTURE ERROR $errorCode x$screenshotErrors OK $frames")
+     diagState("LIVE_DETECT")
+     nextCapture(350L)
     }
    })
-  }catch(e:Exception){busy=false;overlay.updateStatus("CAPTURE ERROR "+e.javaClass.simpleName);next(epoch)}
+  } catch (e: Exception) {
+   screenshotErrors++
+   overlay.updateStatus("CAPTURE ERROR " + e.javaClass.simpleName)
+   nextCapture(350L)
+  }
  }
- private fun next(epoch:Int){if(playing&&epoch==generation)handler.postDelayed(::capture,maxOf(config.pollMs.toLong(),captureBackoffMs))}
- private fun process(bitmap:Bitmap,epoch:Int){
-  val portrait=bitmap.height>bitmap.width
-  val analyzed=if(portrait){
-   val m=Matrix().apply{postRotate(90f)}
-   Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,m,true)
-  }else bitmap
-  try{
-   frames++
-   if(frames%20==0)overlay.updateStatus("OK "+frames+" ERR "+screenshotErrors+" HITS "+detected+" TAPS "+dispatched)
-   val hits=detector.detect(analyzed,SystemClock.uptimeMillis())
-   detected+=hits.size
-   if(hits.isNotEmpty()){
-    // One gesture with multiple strokes avoids cancelling simultaneous notes.
-    val epochHits=hits.filter{it.lane in 0..8}
-    if(epochHits.isNotEmpty()){
-     val builder=GestureDescription.Builder()
-     for(hit in epochHits){
-      val nx=config.laneXs[hit.lane];val ny=config.laneYs[hit.lane]
-      val x=if(portrait)ny*bitmap.width else nx*bitmap.width
-      val y=if(portrait)(1f-nx)*bitmap.height else ny*bitmap.height
-      val path=Path().apply{moveTo(x,y)}
-      builder.addStroke(GestureDescription.StrokeDescription(path,hit.delayMs.coerceIn(0L,130L),42L))
-     }
-     if(playing&&epoch==generation){
-      val accepted=dispatchGesture(builder.build(),null,null)
-      if(accepted)dispatched+=epochHits.size
-      else overlay.updateStatus("AUTO GESTURE REJECTED")
-      overlay.updateStatus("AUTO TAP ${dispatched} / EXPERIMENTAL")
-     }
-    }
+
+ private fun acceptLiveFrame(epoch: Int, hits: List<BlueNoteTracker.Hit>) {
+  frames++
+  detected += hits.size
+  liveNotes.addAll(hits.map { PlayNote(it.targetAtMs, it.lane.toFloat(), NoteKind.TAP) })
+  playLiveNotes(epoch)
+  if (frames % 10 == 0) {
+   showLiveCounts()
+   diagState("LIVE_DETECT")
+  }
+ }
+
+ private fun gestureOutput(config: GameConfig) =
+  AccessibilityGestureOutput(this, handler, config, overlay::touchViewport)
+
+ private fun playLiveNotes(epoch: Int) {
+  if (!isLive(epoch) || livePlayer != null || liveNotes.isEmpty()) return
+  val notes = liveNotes.toList()
+  liveNotes.clear()
+  val player = ChartGesturePlayer(notes, clock, gestureOutput(config)) { stats ->
+   if (isLive(epoch) && stats.finished) {
+    livePlayer = null
+    updateCounts(stats, accumulate = true)
+    showLiveCounts()
+    diagState("LIVE_DETECT")
+    handler.post { playLiveNotes(epoch) }
    }
-  }finally{if(analyzed!==bitmap)analyzed.recycle()}
+  }
+  val first = player.first ?: return
+  livePlayer = player
+  player.sync(first.timeMs, 0L)
+ }
+
+ private fun showLiveCounts() {
+  overlay.updateStatus("AUTO TAP $dispatched OK $completed CXL $cancelled / HITS $detected")
  }
 }
